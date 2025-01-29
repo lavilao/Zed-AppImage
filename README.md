@@ -29,7 +29,3 @@ chmod +x Zed-*.AppImage
 #### Official source code
 The official source code of the Zed is available at links provided
 https://github.com/zed-industries/zed
-
-#### Build
-The AppImage is built from .tar.gz Zed package by GitHub Continuous Integration using this
-bash script https://github.com/lavilao/appimage-bash.
