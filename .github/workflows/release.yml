@@ -14,14 +14,12 @@ jobs:
       - name: Get Latest Zed Pre-release
         id: zed-release
         run: |
-          # Get all Zed releases and find the first pre-release
           response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/zed-industries/zed/releases)
           
           tag_name=$(echo "$response" | jq -r '[.[] | select(.prerelease)][0].tag_name')
           version=$(echo "$tag_name" | sed 's/^v//')
           
-          # Output for subsequent steps
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
           echo "download_url=https://github.com/zed-industries/zed/releases/download/$tag_name/zed-linux-x86_64.tar.gz" >> $GITHUB_OUTPUT
@@ -37,6 +35,13 @@ jobs:
           version_url: "${{ steps.zed-release.outputs.download_url }}"
           version_file: "version.json"
           version_icon: "zed.png"
+          skip_update_check: true  # Add this to prevent early exit
+
+      - name: List build artifacts
+        run: |
+          ls -laR dist/
+          [ -f dist/Zed-*.AppImage ] || exit 1
+          [ -f dist/Zed-*.AppImage.zsync ] || exit 1
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -45,9 +50,10 @@ jobs:
           name: "Zed ${{ steps.zed-release.outputs.version }}"
           body: "Mirror of Zed pre-release ${{ steps.zed-release.outputs.tag_name }}"
           files: |
-            dist/*.AppImage
-            dist/*.zsync
+            dist/Zed-*.AppImage
+            dist/Zed-*.AppImage.zsync
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: .  # Explicitly set working directory
