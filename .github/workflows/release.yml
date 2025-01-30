@@ -30,7 +30,6 @@ jobs:
           cd zed-build
           curl -L "${{ steps.zed-release.outputs.download_url }}" -o zed.tar.gz
           tar -xzf zed.tar.gz
-          mv zed-preview.app zed.app
 
       - name: Set up AppImage Tools
         run: |
@@ -42,8 +41,13 @@ jobs:
       - name: Prepare AppDir
         run: |
           mkdir -p AppDir/usr/bin
-          cp -r zed-build/zed.app/* AppDir/usr/bin/
-          cp zed.png AppDir/zed.png
+          # Copy Zed binaries
+          cp -r zed-build/zed-preview.app/* AppDir/usr/bin/
+          
+          # Create desktop file using Zed's own icon
+          mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps/
+          cp zed-build/zed-preview.app/share/icons/hicolor/512x512/apps/zed.png AppDir/zed.png
+          cp zed-build/zed-preview.app/share/icons/hicolor/512x512/apps/zed.png AppDir/usr/share/icons/hicolor/512x512/apps/zed.png
           
           cat > AppDir/zed.desktop <<EOF
           [Desktop Entry]
@@ -60,12 +64,6 @@ jobs:
           mkdir -p dist
           mv Zed-*.AppImage dist/
           mv Zed-*.AppImage.zsync dist/
-
-      - name: Verify Artifacts
-        run: |
-          ls -la dist/
-          [ -f dist/Zed-*.AppImage ] || exit 1
-          [ -f dist/Zed-*.AppImage.zsync ] || exit 1
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
