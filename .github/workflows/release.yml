@@ -35,10 +35,12 @@ jobs:
           version_url: "${{ steps.zed-release.outputs.download_url }}"
           version_file: "version.json"
           version_icon: "zed.png"
-          skip_update_check: true  # Add this to prevent early exit
+          output_dir: dist  # Explicitly set output directory
+          skip_update_check: true
 
-      - name: List build artifacts
+      - name: Verify Artifacts
         run: |
+          echo "Current directory: $(pwd)"
           ls -laR dist/
           [ -f dist/Zed-*.AppImage ] || exit 1
           [ -f dist/Zed-*.AppImage.zsync ] || exit 1
@@ -56,4 +58,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: .  # Explicitly set working directory
