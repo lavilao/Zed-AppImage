@@ -24,24 +24,46 @@ jobs:
           echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
           echo "download_url=https://github.com/zed-industries/zed/releases/download/$tag_name/zed-linux-x86_64.tar.gz" >> $GITHUB_OUTPUT
 
-      - name: Setup AppImage Environment
+      - name: Download and Extract Zed
+        run: |
+          mkdir -p zed-build
+          cd zed-build
+          curl -L "${{ steps.zed-release.outputs.download_url }}" -o zed.tar.gz
+          tar -xzf zed.tar.gz
+          mv zed-preview.app zed.app
+
+      - name: Set up AppImage Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+          wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+
+      - name: Prepare AppDir
         run: |
           mkdir -p AppDir/usr/bin
-          echo "{\"version\": \"${{ steps.zed-release.outputs.version }}\"}" > AppDir/usr/bin/version.json
+          cp -r zed-build/zed.app/* AppDir/usr/bin/
+          cp zed.png AppDir/zed.png
+          
+          cat > AppDir/zed.desktop <<EOF
+          [Desktop Entry]
+          Name=Zed
+          Exec=zed
+          Icon=zed
+          Type=Application
+          Categories=Development;TextEditor;
+          EOF
 
       - name: Build AppImage
-        uses: lavilao/appimage-bash@main
-        with:
-          version_url: "${{ steps.zed-release.outputs.download_url }}"
-          version_file: "version.json"
-          version_icon: "zed.png"
-          output_dir: dist  # Explicitly set output directory
-          skip_update_check: true
+        run: |
+          ./appimagetool-x86_64.AppImage AppDir Zed-${{ steps.zed-release.outputs.version }}.AppImage
+          mkdir -p dist
+          mv Zed-*.AppImage dist/
+          mv Zed-*.AppImage.zsync dist/
 
       - name: Verify Artifacts
         run: |
-          echo "Current directory: $(pwd)"
-          ls -laR dist/
+          ls -la dist/
           [ -f dist/Zed-*.AppImage ] || exit 1
           [ -f dist/Zed-*.AppImage.zsync ] || exit 1
 
