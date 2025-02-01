@@ -1,80 +1,65 @@
-name: Mirror Zed Pre-releases
+name: Build Pre-release AppImage
 on:
   workflow_dispatch:
   schedule:
     - cron: "5 */12 * * *"
+  push:
+    branches:
+      - "main"
 
 jobs:
-  mirror-release:
-    runs-on: ubuntu-latest
+  version:
+    name: Zed Pre-release AppImage
+    runs-on: ubuntu-20.04
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get Latest Zed Pre-release
-        id: zed-release
-        run: |
-          response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/zed-industries/zed/releases)
-          
-          tag_name=$(echo "$response" | jq -r '[.[] | select(.prerelease)][0].tag_name')
-          version=$(echo "$tag_name" | sed 's/^v//')
-          
-          echo "version=$version" >> $GITHUB_OUTPUT
-          echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
-          echo "download_url=https://github.com/zed-industries/zed/releases/download/$tag_name/zed-linux-x86_64.tar.gz" >> $GITHUB_OUTPUT
-
-      - name: Download and Extract Zed
-        run: |
-          mkdir -p zed-build
-          cd zed-build
-          curl -L "${{ steps.zed-release.outputs.download_url }}" -o zed.tar.gz
-          tar -xzf zed.tar.gz
-
-      - name: Set up AppImage Tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libfuse2
-          wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-
-      - name: Prepare AppDir
+      - uses: actions/checkout@v2
+      - name: Set up directories and version file
+        id: get_zed_version
         run: |
           mkdir -p AppDir/usr/bin
-          # Copy Zed binaries
-          cp -r zed-build/zed-preview.app/* AppDir/usr/bin/
-          
-          # Create desktop file using Zed's own icon
-          mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps/
-          cp zed-build/zed-preview.app/share/icons/hicolor/512x512/apps/zed.png AppDir/zed.png
-          cp zed-build/zed-preview.app/share/icons/hicolor/512x512/apps/zed.png AppDir/usr/share/icons/hicolor/512x512/apps/zed.png
-          
-          cat > AppDir/zed.desktop <<EOF
-          [Desktop Entry]
-          Name=Zed
-          Exec=zed
-          Icon=zed
-          Type=Application
-          Categories=Development;TextEditor;
-          EOF
+          # Fetch all releases and find the latest pre-release
+          ALL_RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/zed-industries/zed/releases)
+          VERSION_TAG=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .tag_name')
 
-      - name: Build AppImage
-        run: |
-          ./appimagetool-x86_64.AppImage AppDir Zed-${{ steps.zed-release.outputs.version }}.AppImage
-          mkdir -p dist
-          mv Zed-*.AppImage dist/
-          mv Zed-*.AppImage.zsync dist/
+          if [ -z "$VERSION_TAG" ]; then
+            echo "Error: No pre-release found."
+            exit 1
+          fi
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+          VERSION=$(echo "$VERSION_TAG" | sed 's/^v//')
+          echo "{\"version\": \"$VERSION\"}" > AppDir/usr/bin/version.json
+          echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+      - name: Build
+        id: build
+        uses: lavilao/appimage-bash@main
         with:
-          tag_name: "v${{ steps.zed-release.outputs.version }}"
-          name: "Zed ${{ steps.zed-release.outputs.version }}"
-          body: "Mirror of Zed pre-release ${{ steps.zed-release.outputs.tag_name }}"
+          version_url: "https://github.com/zed-industries/zed/releases/download/${{ steps.get_zed_version.outputs.VERSION_TAG }}/zed-linux-x86_64.tar.gz"
+          version_file: "version.json"
+          version_icon: "zed.png"
+      - name: Verify artifacts
+        run: |
+          ls -lh dist/
+          [ -f dist/*.AppImage ] || exit 1
+          [ -f dist/*.zsync ] || exit 1
+      - name: Upload artifact
+        if: ${{ env.APP_UPDATE_NEEDED == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zed-AppImage-artifacts
+          path: |
+            dist/*.AppImage
+            dist/*.zsync
+      - name: Release
+        if: ${{ env.APP_UPDATE_NEEDED == 'true' }}
+        uses: marvinpinto/action-automatic-releases@latest
+        with:
+          title: ${{ env.APP_NAME }} AppImage ${{ env.APP_VERSION }} (Pre-release)
+          automatic_release_tag: latest-pre
+          prerelease: true
           files: |
-            dist/Zed-*.AppImage
-            dist/Zed-*.AppImage.zsync
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            dist/*.AppImage
+            dist/*.zsync
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
