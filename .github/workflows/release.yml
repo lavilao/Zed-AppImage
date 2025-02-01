@@ -1,4 +1,4 @@
-name: Build Pre-release AppImage
+name: Build Release AppImage
 on:
   workflow_dispatch:
   schedule:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   version:
-    name: Zed Pre-release AppImage
+    name: Zed Release AppImage
     runs-on: ubuntu-20.04
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -19,7 +19,7 @@ jobs:
         id: get_zed_version
         run: |
           mkdir -p AppDir/usr/bin
-          # Fetch all releases and find the latest pre-release
+          # Fetch all releases and find the latest pre-release (unchanged)
           ALL_RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/zed-industries/zed/releases)
           VERSION_TAG=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .tag_name')
 
@@ -56,9 +56,9 @@ jobs:
         if: ${{ env.APP_UPDATE_NEEDED == 'true' }}
         uses: marvinpinto/action-automatic-releases@latest
         with:
-          title: ${{ env.APP_NAME }} AppImage ${{ env.APP_VERSION }} (Pre-release)
-          automatic_release_tag: latest-pre
-          prerelease: true
+          title: ${{ env.APP_NAME }} AppImage ${{ env.APP_VERSION }}  # Removed "(Pre-release)"
+          automatic_release_tag: latest  # Changed from 'latest-pre'
+          prerelease: false  # Changed from true to false
           files: |
             dist/*.AppImage
             dist/*.zsync
