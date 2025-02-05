@@ -6,7 +6,7 @@
 ## Get Started
 
 #### [Download the latest stable release](https://github.com/lavilao/Zed-AppImage/releases/latest)
-- stable release only
+- pre release only
 - supports update of the AppImage
 
 ### Executing
