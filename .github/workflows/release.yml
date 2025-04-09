@@ -32,6 +32,11 @@ jobs:
           echo "{\"version\": \"$VERSION\"}" > AppDir/usr/bin/version.json
           echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_OUTPUT
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+      - name: Install FUSE
+        run: |
+          sudo add-apt-repository universe
+          sudo apt-get update
+          sudo apt-get install -y libfuse2t64
       - name: Build
         id: build
         uses: lavilao/appimage-bash@main
