@@ -21,7 +21,6 @@ jobs:
         id: get_zed_version
         run: |
           mkdir -p AppDir/usr/bin
-          # Fetch all releases and find the latest pre-release
           ALL_RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/zed-industries/zed/releases)
           VERSION_TAG=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .tag_name')
           RELEASE_DATE=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .published_at')
@@ -35,21 +34,18 @@ jobs:
           echo "{\"version\": \"$VERSION\"}" > AppDir/usr/bin/version.json
           echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_OUTPUT
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          # Convert to epoch time, fallback to fixed date if parsing fails
           RELEASE_DATE_EPOCH=$(date -d "$RELEASE_DATE" +%s 2>/dev/null || date -d '2020-01-01' +%s)
           echo "RELEASE_DATE=$RELEASE_DATE_EPOCH" >> $GITHUB_OUTPUT
 
       - name: Check if update needed
         id: check_update
         run: |
-          # Check if this version is already released
           LATEST_RELEASE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases/tags/latest || echo "")
           
           if echo "$LATEST_RELEASE" | grep -q '"tag_name":"latest"'; then
             EXISTING_VERSION=$(echo "$LATEST_RELEASE" | jq -r '.body' | grep -oP 'Zed version: \K[0-9.]+' || echo "none")
             if [ "$EXISTING_VERSION" = "${{ steps.get_zed_version.outputs.VERSION }}" ]; then
-              echo "Update not needed, version ${{ steps.get_zed_version.outputs.VERSION }} already released"
               echo "NEEDS_BUILD=false" >> $GITHUB_OUTPUT
               exit 0
             fi
@@ -74,76 +70,45 @@ jobs:
       - name: Prepare AppDir
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
-          # Create base AppDir structure
-          mkdir -p AppDir/usr/bin
-          
-          # Download and extract to temp directory first
-          wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_zed_version.outputs.VERSION_TAG }}/zed-linux-x86_64.tar.gz"
-          
-          # Extract without strip-components to inspect actual structure
+          # Extract to temp directory
           mkdir -p temp_extract
-          tar -xzf zed-linux-x86_64.tar.gz -C temp_extract --mtime='2020-01-01 00:00'
+          tar -xzf zed-linux-x86_64.tar.gz -C temp_extract --mtime='2020-01-01 00:00:00'
           
-          echo "=== Extracted structure ==="
-          find temp_extract -type f -executable | head -10
+          # Find the .app directory (zed-preview.app or zed.app)
+          APP_DIR=$(find temp_extract -maxdepth 1 -name "*.app" -type d | head -1)
           
-          # Look for the zed binary
-          ZED_BINARY=$(find temp_extract -name "zed" -type f -executable | head -1)
-          
-          if [ -z "$ZED_BINARY" ]; then
-            echo "Error: zed binary not found in tarball"
-            echo "All files:"
-            find temp_extract -type f
+          if [ -z "$APP_DIR" ]; then
+            echo "Error: No .app directory found in tarball"
             exit 1
           fi
           
-          # Copy everything to AppDir/usr/bin, preserving structure
-          cp -r temp_extract/* AppDir/usr/bin/ 2>/dev/null || true
+          # Move CONTENTS of the .app directory to AppDir/usr
+          cp -r "$APP_DIR"/* AppDir/usr/
           
           # Clean up
-          rm -rf temp_extract
+          rm -rf temp_extract zed-linux-x86_64.tar.gz
           
-          # Verify binary exists and is executable
+          # Verify binary exists
           if [ ! -f AppDir/usr/bin/zed ]; then
-            # Try alternative paths
-            if [ -f AppDir/usr/bin/bin/zed ]; then
-              # Structure has bin subdirectory
-              mv AppDir/usr/bin/bin/* AppDir/usr/bin/
-              rmdir AppDir/usr/bin/bin 2>/dev/null || true
-            fi
-          fi
-          
-          if [ ! -f AppDir/usr/bin/zed ]; then
-            echo "Error: zed binary not found. Contents of AppDir/usr/bin/:"
-            ls -la AppDir/usr/bin/
+            echo "Error: zed binary not found. Found files:"
+            find AppDir -name "zed" -type f
             exit 1
           fi
           
           chmod +x AppDir/usr/bin/zed
           
-          # Create desktop file
-          mkdir -p AppDir/usr/share/applications
-          cat > AppDir/usr/share/applications/zed.desktop <<EOF
-          [Desktop Entry]
-          Version=1.0
-          Name=Zed
-          Comment=High-performance code editor
-          Exec=zed
-          Icon=zed
-          Type=Application
-          Categories=Development;TextEditor;IDE;
-          Terminal=false
-          EOF
+          # Use the provided desktop file
+          if [ -f AppDir/usr/share/applications/zed-preview.desktop ]; then
+            mv AppDir/usr/share/applications/zed-preview.desktop AppDir/usr/share/applications/zed.desktop
+            sed -i 's/Name=zed-preview/Name=Zed/' AppDir/usr/share/applications/zed.desktop
+            sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/usr/share/applications/zed.desktop
+          fi
           
-          # Handle icon
+          # Download icon if not present
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          # Try to find icon in extracted files or download default
-          if [ -f AppDir/usr/bin/zed.png ]; then
-            cp AppDir/usr/bin/zed.png AppDir/usr/share/icons/hicolor/256x256/apps/
-          else
+          if [ ! -f AppDir/usr/share/icons/hicolor/256x256/apps/zed.png ]; then
             wget -q -O AppDir/usr/share/icons/hicolor/256x256/apps/zed.png \
-              https://raw.githubusercontent.com/zed-industries/zed/main/crates/zed/resources/app-icon@2x.png || \
-            touch AppDir/usr/share/icons/hicolor/256x256/apps/zed.png
+              https://zed.dev/favicon.ico || touch AppDir/usr/share/icons/hicolor/256x256/apps/zed.png
           fi
           
           # Set deterministic permissions and timestamps
@@ -168,7 +133,6 @@ jobs:
           SOURCE_DATE_EPOCH: ${{ steps.get_zed_version.outputs.RELEASE_DATE }}
           TZ: UTC
         run: |
-          # Generate update information - critical for delta updates
           UPDATE_INFO="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
           
           ./appimagetool-x86_64.AppImage \
@@ -197,7 +161,7 @@ jobs:
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         uses: marvinpinto/action-automatic-releases@latest
         with:
-          title: "Zed AppImage ${{ env.APP_VERSION }}"
+          title: "${{ env.APP_NAME }} AppImage ${{ env.APP_VERSION }}"
           automatic_release_tag: latest
           prerelease: false
           body: "Zed version: ${{ env.APP_VERSION }}"
