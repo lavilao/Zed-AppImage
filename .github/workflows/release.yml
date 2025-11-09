@@ -17,6 +17,7 @@ jobs:
       needs_build: ${{ steps.check_update.outputs.NEEDS_BUILD }}
     steps:
       - uses: actions/checkout@v2
+      
       - name: Get version info
         id: get_version
         run: |
@@ -27,7 +28,6 @@ jobs:
           [ -z "$TAG" ] && { echo "No pre-release found"; exit 1; }
           
           VERSION=$(echo "$TAG" | sed 's/^v//')
-          echo "{\"version\": \"$VERSION\"}" > version.json
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "DATE_EPOCH=$(date -d "$DATE" +%s 2>/dev/null || date -d '2020-01-01' +%s)" >> $GITHUB_OUTPUT
@@ -50,10 +50,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
-        run: |
-          sudo add-apt-repository universe
-          sudo apt-get update
-          sudo apt-get install -y libfuse2t64
+        run: sudo apt-get update && sudo apt-get install -y libfuse2t64
 
       - name: Download & prepare Zed
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -63,21 +60,29 @@ jobs:
         run: |
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
           
-          # Extract and move zed-preview.app to AppDir/usr in one step
+          # Extract the .app directory directly to AppDir/usr
           mkdir -p AppDir
-          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00' --transform='s|zed-preview.app|usr|' -C AppDir/
+          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00' -C AppDir/ --wildcards '*/' --strip-components=1
           
-          # Clean up and verify
+          # Cleanup
           rm zed-linux-x86_64.tar.gz
-          [ -f AppDir/usr/bin/zed ] || { echo "zed binary missing"; exit 1; }
           
-          # Update version file and desktop entry
-          cp version.json AppDir/usr/bin/
-          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/usr/share/applications/zed-preview.desktop
-          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/usr/share/applications/zed-preview.desktop
+          # Verify structure
+          [ -f AppDir/zed-preview.app/bin/zed ] || { echo "Extraction failed"; exit 1; }
+          
+          # Rename to standard AppDir structure
+          mv AppDir/zed-preview.app AppDir/usr
+          
+          # Update desktop file name and content
+          mv AppDir/usr/share/applications/zed-preview.desktop AppDir/usr/share/applications/zed.desktop
+          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/usr/share/applications/zed.desktop
+          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/usr/share/applications/zed.desktop
           
           # Create AppRun symlink
           cd AppDir && ln -sf usr/bin/zed AppRun && cd ..
+          
+          # Set deterministic timestamps
+          find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
 
       - name: Build AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -92,7 +97,7 @@ jobs:
           ./appimagetool-x86_64.AppImage -u "$UPDATE_INFO" --comp xz AppDir dist/Zed-x86_64.AppImage
 
       - name: Release
-        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true' && steps.check_update.outputs.NEEDS_BUILD != 'false'
         uses: marvinpinto/action-automatic-releases@latest
         with:
           title: "${{ env.APP_NAME }} AppImage ${{ env.APP_VERSION }}"
