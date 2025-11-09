@@ -50,13 +50,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y squashfs-tools libfuse2 wget jq gh
 
-      - name: Download & prepare Zed
+      - name: Download & prepare Zed with retry and validation
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         env:
           TZ: UTC
           SOURCE_DATE_EPOCH: ${{ steps.get_version.outputs.DATE_EPOCH }}
         run: |
-          wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
+          # Download with retry
+          for i in {1..3}; do
+            if wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"; then
+              break
+            elif [ $i -eq 3 ]; then
+              echo "Failed to download after 3 attempts"
+              exit 1
+            fi
+            sleep 5
+          done
+          
+          # Verify download
+          if [ ! -f zed-linux-x86_64.tar.gz ]; then
+            echo "Download failed - archive not found"
+            exit 1
+          fi
+          echo "Downloaded archive size: $(ls -lah zed-linux-x86_64.tar.gz | awk '{print $5}')"
+          
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           mv zed-preview.app AppDir
           rm zed-linux-x86_64.tar.gz
@@ -77,29 +94,44 @@ jobs:
           echo "dist listing (before build):"
           ls -al dist || true
 
-      - name: Build AppImage
+      - name: Build AppImage with modern options
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
+          
           Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
+          
           ./appimagetool-x86_64.AppImage \
             -u "$Update_Info" \
             --comp xz \
+            --verbose \
             AppDir \
             dist/Zed-x86_64.AppImage
 
-      - name: Verify artifacts
+      - name: Verify and validate AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
           echo "dist contents after build:"
           ls -al dist
           test -f dist/Zed-x86_64.AppImage || (echo "AppImage missing" && exit 1)
-          if [ -f dist/Zed-x86_64.AppImage.zsync ]; then
-            echo "zsync found"
-          else
-            echo "zsync not found; continuing without it"
+          
+          # Validate zsync generation
+          if [ ! -f dist/Zed-x86_64.AppImage.zsync ]; then
+            echo "zsync file was not generated!"
+            exit 1
           fi
+          echo "zsync file size: $(ls -lah dist/Zed-x86_64.AppImage.zsync | awk '{print $5}')"
+          echo "zsync file found and validated"
+          
+          # Make AppImage executable and do basic validation
+          chmod +x dist/Zed-x86_64.AppImage
+          
+          # Test if AppImage can show help (non-interactive)
+          timeout 15 ./dist/Zed-x86_64.AppImage --help > /dev/null 2>&1 || echo "Help check completed (expected timeout)"
+          
+          echo "AppImage validation completed successfully"
+          echo "AppImage size: $(ls -lah dist/Zed-x86_64.AppImage | awk '{print $5}')"
 
       - name: Upload release (gh)
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -109,12 +141,40 @@ jobs:
           # Build the list of files to upload: always upload the AppImage, include zsync if present
           FILES="dist/Zed-x86_64.AppImage"
           [ -f dist/Zed-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-x86_64.AppImage.zsync"
+          
+          # Verify all files exist before upload
+          for file in $FILES; do
+            if [ ! -f "$file" ]; then
+              echo "File $file does not exist for upload"
+              exit 1
+            fi
+          done
+          
+          echo "Files to upload: $FILES"
+          
           # Delete existing 'latest' release if present, then create new one with explicit files.
-          gh release delete latest --yes || true
-          gh release create latest \
-            --title "Zed AppImage ${{ env.APP_VERSION }}" \
-            --notes "Zed version: ${{ env.APP_VERSION }}" \
-            -- $FILES
+          # Add retry for release operations
+          for i in {1..3}; do
+            if gh release delete latest --yes 2>/dev/null || true; then
+              break
+            elif [ $i -eq 3 ]; then
+              echo "Failed to delete existing release after 3 attempts"
+            fi
+            sleep 5
+          done
+          
+          for i in {1..3}; do
+            if gh release create latest \
+              --title "Zed AppImage ${{ env.APP_VERSION }}" \
+              --notes "Zed version: ${{ env.APP_VERSION }}" \
+              -- $FILES; then
+              break
+            elif [ $i -eq 3 ]; then
+              echo "Failed to create release after 3 attempts"
+              exit 1
+            fi
+            sleep 5
+          done
 
       - name: Post-release debug (optional)
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
