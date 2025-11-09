@@ -87,7 +87,7 @@ jobs:
             -u "$Update_Info" \
             --comp xz \
             AppDir \
-            dist/Zed-x86_64.AppImage
+            dist/Zed-x86_64
       - name: Verify Artifacts
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
