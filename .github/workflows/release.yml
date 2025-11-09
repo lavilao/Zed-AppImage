@@ -62,7 +62,14 @@ jobs:
           
           # Extract zed.app directly as AppDir
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
-          mv zed.app AppDir
+          
+          # List contents to see actual directory structure
+          ls -la
+          
+          # Find the actual directory name and move it to AppDir
+          ACTUAL_DIR=$(ls -1 | head -n 1)
+          echo "Actual directory name: $ACTUAL_DIR"
+          mv "$ACTUAL_DIR" AppDir
           
           rm zed-linux-x86_64.tar.gz
           
