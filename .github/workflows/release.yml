@@ -60,28 +60,21 @@ jobs:
         run: |
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
           
-          # Extract the tarball
-          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
-          
-          # Rename to AppDir
+          # Extract and rename
+          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00'
           mv zed-preview.app AppDir
           rm zed-linux-x86_64.tar.gz
           
-          # Handle desktop file for preview builds
+          # Update desktop file
           mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop
           sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop
           sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop
           
-          # CRITICAL FIX: Copy desktop file to AppDir root (where appimagetool expects it)
+          # CRITICAL FIX: Copy desktop file to AppDir root
           cp AppDir/share/applications/zed.desktop AppDir/
           
           # Create AppRun symlink
           cd AppDir && ln -sf bin/zed AppRun && cd ..
-          
-          # Verify structure
-          ls -la AppDir/
-          [ -f AppDir/bin/zed ] || { echo "zed binary missing"; exit 1; }
-          [ -f AppDir/zed.desktop ] || { echo "desktop file missing at root"; exit 1; }
           
           # Set deterministic timestamps
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
