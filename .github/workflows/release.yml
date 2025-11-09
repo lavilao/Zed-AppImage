@@ -61,7 +61,7 @@ jobs:
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
           
           # Extract and rename
-          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00'
+          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           mv zed-preview.app AppDir
           rm zed-linux-x86_64.tar.gz
           
@@ -70,11 +70,18 @@ jobs:
           sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop
           sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop
           
-          # CRITICAL FIX: Copy desktop file to AppDir root
+          # CRITICAL: Copy desktop file AND icon to AppDir root
           cp AppDir/share/applications/zed.desktop AppDir/
+          cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/  
           
           # Create AppRun symlink
           cd AppDir && ln -sf bin/zed AppRun && cd ..
+          
+          # Verify structure
+          ls -la AppDir/
+          [ -f AppDir/bin/zed ] || { echo "zed binary missing"; exit 1; }
+          [ -f AppDir/zed.desktop ] || { echo "desktop file missing at root"; exit 1; }
+          [ -f AppDir/zed.png ] || { echo "icon missing at root"; exit 1; }
           
           # Set deterministic timestamps
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
@@ -87,10 +94,10 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           
-          UPDATE_INFO="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
+          Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
           
           ./appimagetool-x86_64.AppImage \
-            -u "$UPDATE_INFO" \
+            -u "$Update_Info" \
             --comp xz \
             AppDir \
             dist/Zed-x86_64.AppImage
