@@ -48,7 +48,7 @@ jobs:
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y squashfs-tools libfuse2 wget jq
+          sudo apt-get install -y squashfs-tools libfuse2 wget jq gh
 
       - name: Download & prepare Zed
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -74,7 +74,7 @@ jobs:
           mkdir -p dist
           echo "AppDir listing:"
           ls -al AppDir || true
-          echo "dist exists:"
+          echo "dist listing (before build):"
           ls -al dist || true
 
       - name: Build AppImage
@@ -87,21 +87,37 @@ jobs:
             -u "$Update_Info" \
             --comp xz \
             AppDir \
-            dist/Zed-x86_64
-      - name: Verify Artifacts
+            dist/Zed-x86_64.AppImage
+
+      - name: Verify artifacts
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
+          echo "dist contents after build:"
           ls -al dist
           test -f dist/Zed-x86_64.AppImage || (echo "AppImage missing" && exit 1)
-          test -f dist/Zed-x86_64.AppImage.zsync || echo "zsync missing"
+          if [ -f dist/Zed-x86_64.AppImage.zsync ]; then
+            echo "zsync found"
+          else
+            echo "zsync not found; continuing without it"
+          fi
 
-      - name: Upload release assets with gh
+      - name: Upload release (gh)
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Build the list of files to upload: always upload the AppImage, include zsync if present
+          FILES="dist/Zed-x86_64.AppImage"
+          [ -f dist/Zed-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-x86_64.AppImage.zsync"
+          # Delete existing 'latest' release if present, then create new one with explicit files.
           gh release delete latest --yes || true
           gh release create latest \
             --title "Zed AppImage ${{ env.APP_VERSION }}" \
             --notes "Zed version: ${{ env.APP_VERSION }}" \
-            dist/Zed-x86_64.AppImage dist/Zed-x86_64.AppImage.zsync
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            -- $FILES
+
+      - name: Post-release debug (optional)
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          echo "Final dist listing:"
+          ls -al dist || true
