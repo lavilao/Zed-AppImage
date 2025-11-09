@@ -1,0 +1,21 @@
+Contents of zed-linux-x86_64.tar.gz:
+zed-preview.app/
+zed-preview.app/share/
+zed-preview.app/share/applications/
+zed-preview.app/share/applications/zed-preview.desktop
+zed-preview.app/share/icons/
+zed-preview.app/share/icons/hicolor/
+zed-preview.app/share/icons/hicolor/1024x1024/
+zed-preview.app/share/icons/hicolor/1024x1024/apps/
+zed-preview.app/share/icons/hicolor/1024x1024/apps/zed.png
+zed-preview.app/share/icons/hicolor/512x512/
+zed-preview.app/share/icons/hicolor/512x512/apps/
+zed-preview.app/share/icons/hicolor/512x512/apps/zed.png
+zed-preview.app/libexec/
+zed-preview.app/libexec/zed-editor
+zed-preview.app/lib/
+zed-preview.app/lib/libX11.so.6
+zed-preview.app/lib/libbsd.so.0
+zed-preview.app/lib/libxkbcommon.so.0
+zed-preview.app/lib/libxcb.so.1
+zed-preview.app/lib/libxcb-xkb.so.1

@@ -60,35 +60,31 @@ jobs:
         run: |
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
           
-          # List contents of the tar.gz file before extraction
-          echo "Contents of zed-linux-x86_64.tar.gz:"
-          tar -tzf zed-linux-x86_64.tar.gz | head -20
-          
-          # Extract zed.app directly as AppDir
+          # Extract the tarball - it contains zed-preview.app/
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           
-          # List contents to see actual directory structure
-          ls -la
-          
-          # Find the actual directory name and move it to AppDir
-          ACTUAL_DIR=$(ls -1 | head -n 1)
-          echo "Actual directory name: $ACTUAL_DIR"
-          mv "$ACTUAL_DIR" AppDir
-          
+          # Rename the extracted directory to AppDir
+          mv zed-preview.app AppDir
           rm zed-linux-x86_64.tar.gz
           
-          # Update desktop file for preview builds
+          # Handle desktop file for preview builds
           if [ -f AppDir/share/applications/zed-preview.desktop ]; then
             mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop
-            sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop
-            sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop
           fi
           
-          # Ensure desktop file exists
-          [ -f AppDir/share/applications/zed.desktop ] || { echo "Desktop file missing"; exit 1; }
+          # Update desktop file content
+          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop
+          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop
+          
+          # Verify critical files exist
+          [ -f AppDir/bin/zed ] || { echo "zed binary missing"; exit 1; }
+          [ -f AppDir/share/applications/zed.desktop ] || { echo "desktop file missing"; exit 1; }
           
           # Create AppRun symlink
           cd AppDir && ln -sf bin/zed AppRun && cd ..
+          
+          # Set deterministic timestamps for zsync
+          find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
 
       - name: Build AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -98,9 +94,14 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           
+          # Generate update information for delta updates
           UPDATE_INFO="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
           
-          ./appimagetool-x86_64.AppImage -u "$UPDATE_INFO" --comp xz AppDir dist/Zed-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage \
+            -u "$UPDATE_INFO" \
+            --comp xz \
+            AppDir \
+            dist/Zed-x86_64.AppImage
 
       - name: Release
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
