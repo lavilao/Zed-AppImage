@@ -60,56 +60,24 @@ jobs:
         run: |
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
           
-          # Extract the tar.gz contents to examine structure
-          mkdir -p AppDir
-          tar -xzf zed-linux-x86_64.tar.gz -C AppDir/
+          # Extract zed.app directly as AppDir
+          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
+          mv zed.app AppDir
           
-          # Cleanup
           rm zed-linux-x86_64.tar.gz
           
-          # Debug: List extracted structure
-          echo "Extracted structure:"
-          find AppDir -type d | head -20
-          
-          # Verify structure - check for common patterns
-          if [ -f AppDir/zed/bin/zed ]; then
-            echo "Found structure: AppDir/zed/bin/zed"
-            mv AppDir/zed AppDir/usr
-          elif [ -f AppDir/zed-preview/bin/zed ]; then
-            echo "Found structure: AppDir/zed-preview/bin/zed"
-            mv AppDir/zed-preview AppDir/usr
-          elif [ -f AppDir/zed-preview.app/bin/zed ]; then
-            echo "Found structure: AppDir/zed-preview.app/bin/zed"
-            mv AppDir/zed-preview.app AppDir/usr
-          elif [ -f AppDir/zed.app/bin/zed ]; then
-            echo "Found structure: AppDir/zed.app/bin/zed"
-            mv AppDir/zed.app AppDir/usr
-          else
-            echo "Extraction failed - could not find zed binary in expected locations"
-            exit 1
+          # Update desktop file for preview builds
+          if [ -f AppDir/share/applications/zed-preview.desktop ]; then
+            mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop
+            sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop
+            sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop
           fi
           
-          # Check for desktop file and handle different naming patterns
-          if [ -f AppDir/usr/share/applications/zed-preview.desktop ]; then
-            echo "Found zed-preview.desktop"
-            mv AppDir/usr/share/applications/zed-preview.desktop AppDir/usr/share/applications/zed.desktop
-            sed -i 's/Name=zed-preview/Name=Zed/' AppDir/usr/share/applications/zed.desktop
-            sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/usr/share/applications/zed.desktop
-          elif [ -f AppDir/usr/share/applications/zed.desktop ]; then
-            echo "Found zed.desktop already exists"
-            sed -i 's/Name=zed/Name=Zed/' AppDir/usr/share/applications/zed.desktop
-            sed -i 's/Exec=zed/Exec=zed/' AppDir/usr/share/applications/zed.desktop
-          else
-            echo "No desktop file found in AppDir/usr/share/applications/"
-            # List available files for debugging
-            find AppDir/usr/share/applications/ -name "*.desktop" || echo "No .desktop files found"
-          fi
+          # Ensure desktop file exists
+          [ -f AppDir/share/applications/zed.desktop ] || { echo "Desktop file missing"; exit 1; }
           
           # Create AppRun symlink
-          cd AppDir && ln -sf usr/bin/zed AppRun && cd ..
-          
-          # Set deterministic timestamps
-          find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
+          cd AppDir && ln -sf bin/zed AppRun && cd ..
 
       - name: Build AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -124,7 +92,7 @@ jobs:
           ./appimagetool-x86_64.AppImage -u "$UPDATE_INFO" --comp xz AppDir dist/Zed-x86_64.AppImage
 
       - name: Release
-        if: steps.check_update.outputs.NEEDS_BUILD == 'true' && steps.check_update.outputs.NEEDS_BUILD != 'false'
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         uses: marvinpinto/action-automatic-releases@latest
         with:
           title: "${{ env.APP_NAME }} AppImage ${{ env.APP_VERSION }}"
