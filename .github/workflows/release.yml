@@ -60,6 +60,10 @@ jobs:
         run: |
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
           
+          # List contents of the tar.gz file before extraction
+          echo "Contents of zed-linux-x86_64.tar.gz:"
+          tar -tzf zed-linux-x86_64.tar.gz | head -20
+          
           # Extract zed.app directly as AppDir
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           
