@@ -17,16 +17,14 @@ jobs:
       needs_build: ${{ steps.check_update.outputs.NEEDS_BUILD }}
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Get version info
         id: get_version
         run: |
           ALL_RELEASES=$(curl -sH "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/zed-industries/zed/releases)
           TAG=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .tag_name')
           DATE=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .published_at')
-          
           [ -z "$TAG" ] && { echo "No pre-release found"; exit 1; }
-          
           VERSION=$(echo "$TAG" | sed 's/^v//')
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
@@ -37,61 +35,54 @@ jobs:
         run: |
           LATEST=$(curl -sH "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases/tags/latest || true)
-          
           if echo "$LATEST" | grep -q '"tag_name":"latest"'; then
             EXISTING=$(echo "$LATEST" | jq -r '.body' | grep -oP 'Zed version: \K[0-9.]+' || echo "none")
             [ "$EXISTING" = "${{ steps.get_version.outputs.VERSION }}" ] && \
               { echo "NEEDS_BUILD=false" >> $GITHUB_OUTPUT; exit 0; }
           fi
-          
           echo "NEEDS_BUILD=true" >> $GITHUB_OUTPUT
           echo "APP_NAME=Zed" >> $GITHUB_ENV
           echo "APP_VERSION=${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_ENV
 
       - name: Install dependencies
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
-        run: sudo apt-get update && sudo apt-get install -y libfuse2t64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools libfuse2 wget jq
 
       - name: Download & prepare Zed
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         env:
-          # Keep SOURCE_DATE_EPOCH here for tar and touch commands
-          SOURCE_DATE_EPOCH: ${{ steps.get_version.outputs.DATE_EPOCH }}
           TZ: UTC
+          SOURCE_DATE_EPOCH: ${{ steps.get_version.outputs.DATE_EPOCH }}
         run: |
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
-          
-          # Extract with deterministic timestamps
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           mv zed-preview.app AppDir
           rm zed-linux-x86_64.tar.gz
-          
-          # Update desktop file
-          mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop
-          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop
-          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop
-          
-          # Copy desktop file and icon to AppDir root (required by appimagetool)
-          cp AppDir/share/applications/zed.desktop AppDir/
-          cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/
-          
-          # Create AppRun symlink
+          mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop || true
+          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop || true
+          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop || true
+          cp AppDir/share/applications/zed.desktop AppDir/ || true
+          cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/ || true
           cd AppDir && ln -sf bin/zed AppRun && cd ..
-          
-          # Set deterministic timestamps
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
+
+      - name: Prepare output directory & debug
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          mkdir -p dist
+          echo "AppDir listing:"
+          ls -al AppDir || true
+          echo "dist exists:"
+          ls -al dist || true
 
       - name: Build AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
-        # CRITICAL FIX: Remove SOURCE_DATE_EPOCH to avoid conflict with appimagetool's internal flags
-        # env:
-        #   SOURCE_DATE_EPOCH: ${{ steps.get_version.outputs.DATE_EPOCH }}
         run: |
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
-          
           Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
-          
           ./appimagetool-x86_64.AppImage \
             -u "$Update_Info" \
             --comp xz \
