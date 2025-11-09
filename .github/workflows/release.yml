@@ -132,8 +132,17 @@ jobs:
             if [ -n "$ZSYNC_FILE" ]; then
               echo "zsync file found at: $ZSYNC_FILE"
               cp "$ZSYNC_FILE" dist/ || echo "Failed to copy zsync file to dist directory"
+              # Check if copy was successful
+              if [ -f dist/Zed-x86_64.AppImage.zsync ]; then
+                echo "zsync file successfully copied to dist/ directory"
+              else
+                echo "Failed to copy zsync file to dist directory"
+                exit 1
+              fi
+            else
+              echo "No zsync file found in any location"
+              exit 1
             fi
-            exit 1
           fi
           echo "zsync file size: $(ls -lah dist/Zed-x86_64.AppImage.zsync | awk '{print $5}')"
           echo "zsync file found and validated"
