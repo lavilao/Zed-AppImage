@@ -116,9 +116,23 @@ jobs:
           ls -al dist
           test -f dist/Zed-x86_64.AppImage || (echo "AppImage missing" && exit 1)
           
+          # Debug: Check for zsync file in all possible locations
+          echo "Searching for zsync file in current directory:"
+          find . -name "*.zsync" -type f
+          echo "Searching for zsync file in dist directory:"
+          find dist -name "*.zsync" -type f 2>/dev/null || echo "No zsync file found in dist directory"
+          echo "Listing all files in working directory:"
+          find . -maxdepth 2 -type f -name "*.zsync" -exec ls -la {} \;
+          
           # Validate zsync generation
           if [ ! -f dist/Zed-x86_64.AppImage.zsync ]; then
-            echo "zsync file was not generated!"
+            echo "zsync file was not generated in dist/ directory!"
+            # Try to find the zsync file in case it was generated elsewhere
+            ZSYNC_FILE=$(find . -name "Zed-x86_64.AppImage.zsync" -type f | head -n 1)
+            if [ -n "$ZSYNC_FILE" ]; then
+              echo "zsync file found at: $ZSYNC_FILE"
+              cp "$ZSYNC_FILE" dist/ || echo "Failed to copy zsync file to dist directory"
+            fi
             exit 1
           fi
           echo "zsync file size: $(ls -lah dist/Zed-x86_64.AppImage.zsync | awk '{print $5}')"
