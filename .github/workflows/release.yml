@@ -74,10 +74,52 @@ jobs:
       - name: Prepare AppDir
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
-          # Extract with deterministic timestamp
+          # Create base AppDir structure
           mkdir -p AppDir/usr/bin
-          # --strip-components=1 assumes tar has a top-level directory; adjust if needed
-          tar -xzf zed-linux-x86_64.tar.gz -C AppDir/usr/bin --strip-components=1 --mtime='2020-01-01 00:00:00'
+          
+          # Download and extract to temp directory first
+          wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_zed_version.outputs.VERSION_TAG }}/zed-linux-x86_64.tar.gz"
+          
+          # Extract without strip-components to inspect actual structure
+          mkdir -p temp_extract
+          tar -xzf zed-linux-x86_64.tar.gz -C temp_extract --mtime='2020-01-01 00:00'
+          
+          echo "=== Extracted structure ==="
+          find temp_extract -type f -executable | head -10
+          
+          # Look for the zed binary
+          ZED_BINARY=$(find temp_extract -name "zed" -type f -executable | head -1)
+          
+          if [ -z "$ZED_BINARY" ]; then
+            echo "Error: zed binary not found in tarball"
+            echo "All files:"
+            find temp_extract -type f
+            exit 1
+          fi
+          
+          # Copy everything to AppDir/usr/bin, preserving structure
+          cp -r temp_extract/* AppDir/usr/bin/ 2>/dev/null || true
+          
+          # Clean up
+          rm -rf temp_extract
+          
+          # Verify binary exists and is executable
+          if [ ! -f AppDir/usr/bin/zed ]; then
+            # Try alternative paths
+            if [ -f AppDir/usr/bin/bin/zed ]; then
+              # Structure has bin subdirectory
+              mv AppDir/usr/bin/bin/* AppDir/usr/bin/
+              rmdir AppDir/usr/bin/bin 2>/dev/null || true
+            fi
+          fi
+          
+          if [ ! -f AppDir/usr/bin/zed ]; then
+            echo "Error: zed binary not found. Contents of AppDir/usr/bin/:"
+            ls -la AppDir/usr/bin/
+            exit 1
+          fi
+          
+          chmod +x AppDir/usr/bin/zed
           
           # Create desktop file
           mkdir -p AppDir/usr/share/applications
@@ -93,19 +135,25 @@ jobs:
           Terminal=false
           EOF
           
-          # Copy icon (place zed.png in your repo root or it downloads a placeholder)
+          # Handle icon
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          cp zed.png AppDir/usr/share/icons/hicolor/256x256/apps/ 2>/dev/null || \
-            wget -q -O AppDir/usr/share/icons/hicolor/256x256/apps/zed.png https://zed.dev/favicon.ico
+          # Try to find icon in extracted files or download default
+          if [ -f AppDir/usr/bin/zed.png ]; then
+            cp AppDir/usr/bin/zed.png AppDir/usr/share/icons/hicolor/256x256/apps/
+          else
+            wget -q -O AppDir/usr/share/icons/hicolor/256x256/apps/zed.png \
+              https://raw.githubusercontent.com/zed-industries/zed/main/crates/zed/resources/app-icon@2x.png || \
+            touch AppDir/usr/share/icons/hicolor/256x256/apps/zed.png
+          fi
           
           # Set deterministic permissions and timestamps
           find AppDir -type f | sort | xargs chmod 644
           find AppDir -type d | sort | xargs chmod 755
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
           
-          # Create AppRun (relative symlink)
+          # Create AppRun symlink
           cd AppDir
-          ln -s usr/bin/zed AppRun
+          ln -sf usr/bin/zed AppRun
           cd ..
 
       - name: Download appimagetool
