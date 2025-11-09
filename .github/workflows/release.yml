@@ -88,14 +88,20 @@ jobs:
             --comp xz \
             AppDir \
             dist/Zed-x86_64.AppImage
-
-      - name: Release
+      - name: Verify Artifacts
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
-        uses: marvinpinto/action-automatic-releases@latest
-        with:
-          title: "${{ env.APP_NAME }} AppImage ${{ env.APP_VERSION }}"
-          automatic_release_tag: latest
-          prerelease: false
-          body: "Zed version: ${{ env.APP_VERSION }}"
-          files: dist/*
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -al dist
+          test -f dist/Zed-x86_64.AppImage || (echo "AppImage missing" && exit 1)
+          test -f dist/Zed-x86_64.AppImage.zsync || echo "zsync missing"
+
+      - name: Upload release assets with gh
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          gh release delete latest --yes || true
+          gh release create latest \
+            --title "Zed AppImage ${{ env.APP_VERSION }}" \
+            --notes "Zed version: ${{ env.APP_VERSION }}" \
+            dist/Zed-x86_64.AppImage dist/Zed-x86_64.AppImage.zsync
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
