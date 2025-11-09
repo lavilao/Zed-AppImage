@@ -60,23 +60,50 @@ jobs:
         run: |
           wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"
           
-          # Extract the .app directory directly to AppDir/usr
+          # Extract the tar.gz contents to examine structure
           mkdir -p AppDir
-          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00' -C AppDir/ --wildcards '*/' --strip-components=1
+          tar -xzf zed-linux-x86_64.tar.gz -C AppDir/
           
           # Cleanup
           rm zed-linux-x86_64.tar.gz
           
-          # Verify structure
-          [ -f AppDir/zed-preview.app/bin/zed ] || { echo "Extraction failed"; exit 1; }
+          # Debug: List extracted structure
+          echo "Extracted structure:"
+          find AppDir -type d | head -20
           
-          # Rename to standard AppDir structure
-          mv AppDir/zed-preview.app AppDir/usr
+          # Verify structure - check for common patterns
+          if [ -f AppDir/zed/bin/zed ]; then
+            echo "Found structure: AppDir/zed/bin/zed"
+            mv AppDir/zed AppDir/usr
+          elif [ -f AppDir/zed-preview/bin/zed ]; then
+            echo "Found structure: AppDir/zed-preview/bin/zed"
+            mv AppDir/zed-preview AppDir/usr
+          elif [ -f AppDir/zed-preview.app/bin/zed ]; then
+            echo "Found structure: AppDir/zed-preview.app/bin/zed"
+            mv AppDir/zed-preview.app AppDir/usr
+          elif [ -f AppDir/zed.app/bin/zed ]; then
+            echo "Found structure: AppDir/zed.app/bin/zed"
+            mv AppDir/zed.app AppDir/usr
+          else
+            echo "Extraction failed - could not find zed binary in expected locations"
+            exit 1
+          fi
           
-          # Update desktop file name and content
-          mv AppDir/usr/share/applications/zed-preview.desktop AppDir/usr/share/applications/zed.desktop
-          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/usr/share/applications/zed.desktop
-          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/usr/share/applications/zed.desktop
+          # Check for desktop file and handle different naming patterns
+          if [ -f AppDir/usr/share/applications/zed-preview.desktop ]; then
+            echo "Found zed-preview.desktop"
+            mv AppDir/usr/share/applications/zed-preview.desktop AppDir/usr/share/applications/zed.desktop
+            sed -i 's/Name=zed-preview/Name=Zed/' AppDir/usr/share/applications/zed.desktop
+            sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/usr/share/applications/zed.desktop
+          elif [ -f AppDir/usr/share/applications/zed.desktop ]; then
+            echo "Found zed.desktop already exists"
+            sed -i 's/Name=zed/Name=Zed/' AppDir/usr/share/applications/zed.desktop
+            sed -i 's/Exec=zed/Exec=zed/' AppDir/usr/share/applications/zed.desktop
+          else
+            echo "No desktop file found in AppDir/usr/share/applications/"
+            # List available files for debugging
+            find AppDir/usr/share/applications/ -name "*.desktop" || echo "No .desktop files found"
+          fi
           
           # Create AppRun symlink
           cd AppDir && ln -sf usr/bin/zed AppRun && cd ..
