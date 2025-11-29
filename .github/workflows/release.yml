@@ -85,6 +85,10 @@ jobs:
           
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           
+          # Debug: List extracted contents
+          echo "Extracted contents:"
+          ls -la
+          
           # Handle different directory structures for stable vs preview releases
           if [ "${{ github.ref_name }}" = "stable" ]; then
             # Stable releases use zed.app
@@ -96,15 +100,25 @@ jobs:
           
           rm zed-linux-x86_64.tar.gz
           
-          # Handle different desktop file names
+          # Debug: List AppDir contents
+          echo "AppDir contents:"
+          find AppDir -type f | head -20
+          
+          # Handle desktop file setup for both stable and preview
           if [ "${{ github.ref_name }}" = "stable" ]; then
-            # Stable releases use zed.desktop
-            mv AppDir/share/applications/zed.desktop AppDir/share/applications/zed.desktop.bak || true
+            # Stable releases already have zed.desktop, just copy it to root
+            if [ -f AppDir/share/applications/zed.desktop ]; then
+              cp AppDir/share/applications/zed.desktop AppDir/
+            else
+              echo "zed.desktop not found in stable release"
+              exit 1
+            fi
           else
-            # Preview releases use zed-preview.desktop
+            # Preview releases use zed-preview.desktop, rename to zed.desktop
             mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop || true
             sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop || true
             sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop || true
+            cp AppDir/share/applications/zed.desktop AppDir/
           fi
           cp AppDir/share/applications/zed.desktop AppDir/ || true
           cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/ || true
