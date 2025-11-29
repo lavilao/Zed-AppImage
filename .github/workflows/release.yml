@@ -85,10 +85,6 @@ jobs:
           
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           
-          # Debug: List extracted contents
-          echo "Extracted contents:"
-          ls -la
-          
           # Handle different directory structures for stable vs preview releases
           if [ "${{ github.ref_name }}" = "stable" ]; then
             # Stable releases use zed.app
@@ -100,65 +96,21 @@ jobs:
           
           rm zed-linux-x86_64.tar.gz
           
-          # Debug: List AppDir contents
-          echo "AppDir contents:"
-          find AppDir -type f | head -20
-          
           # Handle desktop file setup for both stable and preview
-          DESKTOP_FILE_FOUND=false
-          
           if [ "${{ github.ref_name }}" = "stable" ]; then
-            # Try to find zed.desktop in stable release
+            # Stable releases already have zed.desktop, just copy it to root
             if [ -f AppDir/share/applications/zed.desktop ]; then
               cp AppDir/share/applications/zed.desktop AppDir/
-              DESKTOP_FILE_FOUND=true
-            elif [ -f AppDir/zed.desktop ]; then
-              cp AppDir/zed.desktop AppDir/
-              DESKTOP_FILE_FOUND=true
             else
-              # Create a basic desktop file as fallback
-              echo "Creating fallback desktop file for stable release"
-              cat > AppDir/zed.desktop << EOF
-[Desktop Entry]
-Name=Zed
-Comment=Code Editor
-Exec=zed
-Icon=zed
-Type=Application
-Categories=Development;TextEditor;
-Terminal=false
-EOF
-              DESKTOP_FILE_FOUND=true
+              echo "zed.desktop not found in stable release"
+              exit 1
             fi
           else
-            # Preview releases use zed-preview.desktop
-            if [ -f AppDir/share/applications/zed-preview.desktop ]; then
-              mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop
-              sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop
-              sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop
-              cp AppDir/share/applications/zed.desktop AppDir/
-              DESKTOP_FILE_FOUND=true
-            else
-              # Create a basic desktop file as fallback
-              echo "Creating fallback desktop file for preview release"
-              cat > AppDir/zed.desktop << EOF
-[Desktop Entry]
-Name=Zed
-Comment=Code Editor
-Exec=zed
-Icon=zed
-Type=Application
-Categories=Development;TextEditor;
-Terminal=false
-EOF
-              DESKTOP_FILE_FOUND=true
-            fi
-          fi
-          
-          # Verify desktop file exists
-          if [ "$DESKTOP_FILE_FOUND" = false ]; then
-            echo "Failed to setup desktop file"
-            exit 1
+            # Preview releases use zed-preview.desktop, rename to zed.desktop
+            mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop || true
+            sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop || true
+            sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop || true
+            cp AppDir/share/applications/zed.desktop AppDir/
           fi
           cp AppDir/share/applications/zed.desktop AppDir/ || true
           cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/ || true
