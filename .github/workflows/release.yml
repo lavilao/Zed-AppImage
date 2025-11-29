@@ -84,11 +84,28 @@ jobs:
           echo "Downloaded archive size: $(ls -lah zed-linux-x86_64.tar.gz | awk '{print $5}')"
           
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
-          mv zed-preview.app AppDir
+          
+          # Handle different directory structures for stable vs preview releases
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            # Stable releases use zed.app
+            mv zed.app AppDir
+          else
+            # Preview releases use zed-preview.app
+            mv zed-preview.app AppDir
+          fi
+          
           rm zed-linux-x86_64.tar.gz
-          mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop || true
-          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop || true
-          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop || true
+          
+          # Handle different desktop file names
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            # Stable releases use zed.desktop
+            mv AppDir/share/applications/zed.desktop AppDir/share/applications/zed.desktop.bak || true
+          else
+            # Preview releases use zed-preview.desktop
+            mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop || true
+            sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop || true
+            sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop || true
+          fi
           cp AppDir/share/applications/zed.desktop AppDir/ || true
           cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/ || true
           cd AppDir && ln -sf bin/zed AppRun && cd ..
@@ -109,21 +126,38 @@ jobs:
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           
-          Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
+          # Use different update info for stable vs preview
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|stable|Zed-x86_64.AppImage.zsync"
+          else
+            Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
+          fi
+          
+          # Use different output filenames for stable vs preview
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            OUTPUT_FILE="dist/Zed-Stable-x86_64.AppImage"
+          else
+            OUTPUT_FILE="dist/Zed-Preview-x86_64.AppImage"
+          fi
           
           ./appimagetool-x86_64.AppImage \
             -u "$Update_Info" \
             --comp xz \
             --verbose \
             AppDir \
-            dist/Zed-x86_64.AppImage
+            "$OUTPUT_FILE"
 
       - name: Verify and validate AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
           echo "dist contents after build:"
           ls -al dist
-          test -f dist/Zed-x86_64.AppImage || (echo "AppImage missing" && exit 1)
+          # Check for the correct AppImage file based on branch
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            test -f dist/Zed-Stable-x86_64.AppImage || (echo "Stable AppImage missing" && exit 1)
+          else
+            test -f dist/Zed-Preview-x86_64.AppImage || (echo "Preview AppImage missing" && exit 1)
+          fi
           
           # Debug: Check for zsync file in all possible locations
           echo "Searching for zsync file in current directory:"
@@ -133,16 +167,25 @@ jobs:
           echo "Listing all files in working directory:"
           find . -maxdepth 2 -type f -name "*.zsync" -exec ls -la {} \;
           
-          # Validate zsync generation
-          if [ ! -f dist/Zed-x86_64.AppImage.zsync ]; then
+          # Validate zsync generation with correct filename
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            ZSYNC_FILE="dist/Zed-Stable-x86_64.AppImage.zsync"
+          else
+            ZSYNC_FILE="dist/Zed-Preview-x86_64.AppImage.zsync"
+          fi
+          
+          if [ ! -f "$ZSYNC_FILE" ]; then
             echo "zsync file was not generated in dist/ directory!"
             # Try to find the zsync file in case it was generated elsewhere
-            ZSYNC_FILE=$(find . -name "Zed-x86_64.AppImage.zsync" -type f | head -n 1)
-            if [ -n "$ZSYNC_FILE" ]; then
-              echo "zsync file found at: $ZSYNC_FILE"
-              cp "$ZSYNC_FILE" dist/ || echo "Failed to copy zsync file to dist directory"
-              # Check if copy was successful
-              if [ -f dist/Zed-x86_64.AppImage.zsync ]; then
+            if [ "${{ github.ref_name }}" = "stable" ]; then
+              FOUND_ZSYNC=$(find . -name "Zed-Stable-x86_64.AppImage.zsync" -type f | head -n 1)
+            else
+              FOUND_ZSYNC=$(find . -name "Zed-Preview-x86_64.AppImage.zsync" -type f | head -n 1)
+            fi
+            if [ -n "$FOUND_ZSYNC" ]; then
+              echo "zsync file found at: $FOUND_ZSYNC"
+              cp "$FOUND_ZSYNC" dist/ || echo "Failed to copy zsync file to dist directory"
+              if [ -f "$ZSYNC_FILE" ]; then
                 echo "zsync file successfully copied to dist/ directory"
               else
                 echo "Failed to copy zsync file to dist directory"
@@ -153,26 +196,37 @@ jobs:
               exit 1
             fi
           fi
-          echo "zsync file size: $(ls -lah dist/Zed-x86_64.AppImage.zsync | awk '{print $5}')"
+          echo "zsync file size: $(ls -lah "$ZSYNC_FILE" | awk '{print $5}')"
           echo "zsync file found and validated"
           
           # Make AppImage executable and do basic validation
-          chmod +x dist/Zed-x86_64.AppImage
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            APPIMAGE_FILE="dist/Zed-Stable-x86_64.AppImage"
+          else
+            APPIMAGE_FILE="dist/Zed-Preview-x86_64.AppImage"
+          fi
+          
+          chmod +x "$APPIMAGE_FILE"
           
           # Test if AppImage can show help (non-interactive)
-          timeout 15 ./dist/Zed-x86_64.AppImage --help > /dev/null 2>&1 || echo "Help check completed (expected timeout)"
+          timeout 15 ./"$APPIMAGE_FILE" --help > /dev/null 2>&1 || echo "Help check completed (expected timeout)"
           
           echo "AppImage validation completed successfully"
-          echo "AppImage size: $(ls -lah dist/Zed-x86_64.AppImage | awk '{print $5}')"
+          echo "AppImage size: $(ls -lah "$APPIMAGE_FILE" | awk '{print $5}')"
 
       - name: Upload release (gh)
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Build the list of files to upload: always upload the AppImage, include zsync if present
-          FILES="dist/Zed-x86_64.AppImage"
-          [ -f dist/Zed-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-x86_64.AppImage.zsync"
+          # Build the list of files to upload: always upload the correct AppImage, include zsync if present
+          if [ "${{ github.ref_name }}" = "stable" ]; then
+            FILES="dist/Zed-Stable-x86_64.AppImage"
+            [ -f dist/Zed-Stable-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-Stable-x86_64.AppImage.zsync"
+          else
+            FILES="dist/Zed-Preview-x86_64.AppImage"
+            [ -f dist/Zed-Preview-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-Preview-x86_64.AppImage.zsync"
+          fi
           
           # Verify all files exist before upload
           for file in $FILES; do
