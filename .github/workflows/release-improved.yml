@@ -1,0 +1,231 @@
+name: Build Release AppImage
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "5 */12 * * *"
+  push:
+    branches:
+      - "main"
+      - "delta-improvement"
+  pull_request:
+    branches:
+      - "delta-improvement"
+
+jobs:
+  build:
+    name: Zed Release AppImage
+    runs-on: ubuntu-24.04
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      needs_build: ${{ steps.check_update.outputs.NEEDS_BUILD }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Get version info
+        id: get_version
+        run: |
+          ALL_RELEASES=$(curl -sH "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/zed-industries/zed/releases)
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            # For main branch, get first stable release (non-prerelease)
+            TAG=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease == false)) | first | .tag_name')
+            DATE=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease == false)) | first | .published_at')
+            [ -z "$TAG" ] && { echo "No stable release found"; exit 1; }
+          else
+            # For other branches, get pre-release
+            TAG=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .tag_name')
+            DATE=$(echo "$ALL_RELEASES" | jq -r 'map(select(.prerelease)) | first | .published_at')
+            [ -z "$TAG" ] && { echo "No pre-release found"; exit 1; }
+          fi
+          VERSION=$(echo "$TAG" | sed 's/^v//')
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "DATE_EPOCH=$(date -d "$DATE" +%s 2>/dev/null || date -d '2020-01-01' +%s)" >> $GITHUB_OUTPUT
+
+      - name: Check for existing release
+        id: check_update
+        run: |
+          LATEST=$(curl -sH "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/latest || true)
+          if echo "$LATEST" | grep -q '"tag_name":"latest"'; then
+            EXISTING=$(echo "$LATEST" | jq -r '.body' | grep -oP 'Zed version: \K[0-9.]+' || echo "none")
+            [ "$EXISTING" = "${{ steps.get_version.outputs.VERSION }}" ] && \
+              { echo "NEEDS_BUILD=false" >> $GITHUB_OUTPUT; exit 0; }
+          fi
+          echo "NEEDS_BUILD=true" >> $GITHUB_OUTPUT
+          echo "APP_NAME=Zed" >> $GITHUB_ENV
+          echo "APP_VERSION=${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools libfuse2 wget jq gh
+
+      - name: Download & prepare Zed with retry and validation
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        env:
+          TZ: UTC
+          SOURCE_DATE_EPOCH: ${{ steps.get_version.outputs.DATE_EPOCH }}
+        run: |
+          # Download with retry
+          for i in {1..3}; do
+            if wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"; then
+              break
+            elif [ $i -eq 3 ]; then
+              echo "Failed to download after 3 attempts"
+              exit 1
+            fi
+            sleep 5
+          done
+          
+          # Verify download
+          if [ ! -f zed-linux-x86_64.tar.gz ]; then
+            echo "Download failed - archive not found"
+            exit 1
+          fi
+          echo "Downloaded archive size: $(ls -lah zed-linux-x86_64.tar.gz | awk '{print $5}')"
+          
+          tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
+          
+          # Handle different directory structures for stable vs preview releases
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            # Stable releases use zed.app
+            mv zed.app AppDir
+          else
+            # Preview releases use zed-preview.app
+            mv zed-preview.app AppDir
+          fi
+          
+          rm zed-linux-x86_64.tar.gz
+          
+          # Handle desktop file setup for both stable and preview
+          if [ -f AppDir/share/applications/zed.desktop ]; then
+            cp AppDir/share/applications/zed.desktop AppDir/
+          else
+            echo "zed.desktop not found in stable release"
+            exit 1
+          fi
+          cp AppDir/share/applications/zed.desktop AppDir/ || true
+          cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/ || true
+          cd AppDir && ln -sf bin/zed AppRun && cd ..
+          find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
+
+      - name: Prepare output directory & debug
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          mkdir -p dist
+          echo "AppDir listing:"
+          ls -al AppDir || true
+          echo "dist listing (before build):"
+          ls -al dist || true
+
+      - name: Build AppImage with modern options
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          
+          # Use ivan-hc's proven update information format
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|stable|Zed-x86_64.AppImage.zsync"
+          else
+            Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
+          fi
+          
+          # Use different output filenames for stable vs preview
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            OUTPUT_FILE="dist/Zed-Stable-x86_64.AppImage"
+          else
+            OUTPUT_FILE="dist/Zed-Preview-x86_64.AppImage"
+          fi
+          
+          # Use ivan-hc's AppImageTool approach with optimizations
+          ./appimagetool-x86_64.AppImage \
+            -u "$Update_Info" \
+            --comp xz \
+            --verbose \
+            AppDir \
+            "$OUTPUT_FILE"
+
+      - name: Verify and validate AppImage
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          echo "dist contents after build:"
+          ls -al dist
+          
+          # Check for the correct AppImage file based on branch
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            test -f dist/Zed-Stable-x86_64.AppImage || (echo "Stable AppImage missing" && exit 1)
+          else
+            test -f dist/Zed-Preview-x86_64.AppImage || (echo "Preview AppImage missing" && exit 1)
+          fi
+          
+          # Validate zsync generation with correct filename
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            ZSYNC_FILE="dist/Zed-Stable-x86_64.AppImage.zsync"
+          else
+            ZSYNC_FILE="dist/Zed-Preview-x86_64.AppImage.zsync"
+          fi
+          
+          if [ ! -f "$ZSYNC_FILE" ]; then
+            echo "ERROR: zsync file was not generated in dist/ directory!"
+            exit 1
+          fi
+          
+          echo "✅ Zsync file validation passed"
+          echo "Zsync file size: $(ls -lah "$ZSYNC_FILE" | awk '{print $5}')"
+
+      - name: Upload release (gh)
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Build list of files to upload: always upload the correct AppImage, include zsync if present
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            FILES="dist/Zed-Stable-x86_64.AppImage"
+            [ -f dist/Zed-Stable-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-Stable-x86_64.AppImage.zsync"
+          else
+            FILES="dist/Zed-Preview-x86_64.AppImage"
+            [ -f dist/Zed-Preview-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-Preview-x86_64.AppImage.zsync"
+          fi
+          
+          # Verify all files exist before upload
+          for file in $FILES; do
+            if [ ! -f "$file" ]; then
+              echo "File $file does not exist for upload"
+              exit 1
+            fi
+          done
+          
+          echo "Files to upload: $FILES"
+          
+          # Use ivan-hc's release management approach
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            RELEASE_TAG="stable"
+            RELEASE_TITLE="Zed Stable AppImage ${{ env.APP_VERSION }}"
+          else
+            RELEASE_TAG="latest"
+            RELEASE_TITLE="Zed Preview AppImage ${{ env.APP_VERSION }}"
+          fi
+          
+          # Create or update release with retry mechanism
+          for i in {1..3}; do
+            if gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes "Zed version: ${{ env.APP_VERSION }}" \
+              -- $FILES; then
+              break
+            elif [ $i -eq 3 ]; then
+              echo "Failed to create release after 3 attempts"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Post-release debug (optional)
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        run: |
+          echo "Final dist listing:"
+          ls -al dist || true
