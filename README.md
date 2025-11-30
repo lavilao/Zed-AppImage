@@ -1,31 +1,45 @@
-<h2 align="center">Zed AppImage</h2>
-<p align="center">Unofficial / Community provided Zed AppImage - stable release</p>
+# Zed AppImage
 
-[![Zed AppImage release](https://github.com/lavilao/Zed-AppImage/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/lavilao/Zed-AppImage/actions/workflows/release.yml)
+This repository contains an AppImage build for [Zed](https://zed.dev/), a high-performance, multiplayer code editor.
 
-## Get Started
+## About
 
-#### [Download the latest stable release](https://github.com/lavilao/Zed-AppImage/releases/latest)
-- pre release only
-- supports update of the AppImage
+This AppImage is built using an approach inspired by [ivan-hc's AppImage building techniques](https://github.com/ivan-hc), focusing on:
 
-### Executing
-#### File Manager
-Double-click the `*.AppImage` file and you are done!
+- Direct download of official Zed releases
+- Delta update support via zsync for efficient updates
+- Minimal dependencies and maximum portability
+- Reproducible builds for better delta update efficiency
 
-> In normal cases, the above method should work, but in some cases you 
-> need mark file as executable. You can do this using File manager -> right click > Properties > Allow Execution,
-> or by terminal issuing command `chmod +x Zed-*.AppImage`
+## Usage
 
-#### Appimaged
-Use Appimaged for better desktop integration ==> [download appimaged](https://github.com/probonopd/go-appimage/tree/master/src/appimaged)
+1. Download the latest AppImage from the releases page
+2. Make it executable: `chmod +x Zed-*.AppImage`
+3. Run it: `./Zed-*.AppImage`
 
-#### Terminal
+## Delta Updates
+
+This AppImage supports delta updates via zsync. To update your AppImage:
+
 ```bash
-chmod +x Zed-*.AppImage
-./Zed-*.AppImage
+zsync -u Zed-*.AppImage.zsync
 ```
 
-#### Official source code
-The official source code of the Zed is available at links provided
-https://github.com/zed-industries/zed
+Or use AppImageUpdate if you have it installed.
+
+## Building
+
+To build the AppImage locally:
+
+```bash
+chmod +x build_zed_appimage.sh
+./build_zed_appimage.sh
+```
+
+## Approach
+
+This build script follows ivan-hc's pattern:
+1. Downloads the official Zed tar.gz release
+2. Creates an AppDir with proper desktop integration
+3. Builds the AppImage with delta update support using the `-u` flag
+4. Maintains consistent build parameters for reproducible builds

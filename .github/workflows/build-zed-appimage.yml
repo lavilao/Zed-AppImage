@@ -1,0 +1,70 @@
+name: Build Zed AppImage
+
+on:
+  push:
+    branches: [ "main", "zed-appimage-ivan-hc-approach" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          # Add more architectures if needed in the future
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y desktop-file-validate appstream-util zsync pixz
+
+    - name: Make build script executable
+      run: chmod +x build_zed_appimage.sh
+
+    - name: Build Zed AppImage
+      run: ./build_zed_appimage.sh
+
+    - name: Validate AppImage
+      run: |
+        ls -la *.AppImage
+        file *.AppImage
+        ./Zed-*.AppImage --appimage-help || true
+
+    - name: Create zsync file for delta updates
+      run: |
+        zsyncmake -u "$(basename *.AppImage)" -o "$(basename *.AppImage).zsync" *.AppImage
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Zed-AppImage-${{ matrix.arch }}
+        path: |
+          *.AppImage
+          *.AppImage.zsync
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          Zed-AppImage-*/Zed*.AppImage
+          Zed-AppImage-*/Zed*.AppImage.zsync
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+        generate_release_notes: true
