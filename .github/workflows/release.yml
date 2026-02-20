@@ -130,8 +130,19 @@ jobs:
           echo "Files generated:"
           ls -la *.AppImage *.zsync 2>/dev/null || ls -la
           
-          mv Zed-*-x86_64.AppImage dist/Zed-x86_64.AppImage
-          mv Zed-*-x86_64.AppImage.zsync dist/Zed-x86_64.AppImage.zsync 2>/dev/null || true
+          APPIMAGE_FILE=$(ls *.AppImage 2>/dev/null | head -n 1)
+          ZSYNC_FILE=$(ls *.zsync 2>/dev/null | head -n 1)
+          
+          if [ -z "$APPIMAGE_FILE" ]; then
+            echo "ERROR: No AppImage file generated"
+            exit 1
+          fi
+          
+          mv "$APPIMAGE_FILE" dist/Zed-x86_64.AppImage
+          [ -n "$ZSYNC_FILE" ] && mv "$ZSYNC_FILE" dist/Zed-x86_64.AppImage.zsync
+          
+          echo "Moved files to dist/"
+          ls -la dist/
 
       - name: Verify and validate AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
