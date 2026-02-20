@@ -97,12 +97,14 @@ jobs:
       - name: Build AppImage with modern options
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
+          wget -q https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-940-x86_64.AppImage
+
+          chmod +x appimagetool-940-x86_64.AppImage
+
           
           Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
           
-          ./appimagetool-x86_64.AppImage \
+          ./appimagetool-940-x86_64.AppImage \
             -u "$Update_Info" \
             --comp xz \
             --verbose \
