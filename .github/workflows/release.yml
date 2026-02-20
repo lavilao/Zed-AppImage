@@ -104,13 +104,6 @@ jobs:
           echo "Final AppDir top-level:"
           ls -la AppDir/
 
-      - name: Prepare output directory
-        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
-        run: |
-          mkdir -p dist
-          echo "AppDir listing:"
-          ls -al AppDir
-
       - name: Build AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         env:
@@ -119,7 +112,7 @@ jobs:
           echo "AppDir contents before build:"
           ls -la AppDir/
           echo "Desktop file in AppDir:"
-          cat AppDir/*.desktop || echo "No desktop file at top level!"
+          cat AppDir/*.desktop
           
           wget -q https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-940-x86_64.AppImage
           chmod +x appimagetool-940-x86_64.AppImage
@@ -128,44 +121,26 @@ jobs:
           ./appimagetool-940-x86_64.AppImage ./AppDir
           
           echo "Files generated:"
-          ls -la *.AppImage *.zsync 2>/dev/null || ls -la
-          
-          APPIMAGE_FILE=$(ls *.AppImage 2>/dev/null | head -n 1)
-          ZSYNC_FILE=$(ls *.zsync 2>/dev/null | head -n 1)
-          
-          if [ -z "$APPIMAGE_FILE" ]; then
-            echo "ERROR: No AppImage file generated"
-            exit 1
-          fi
-          
-          mv "$APPIMAGE_FILE" dist/Zed-x86_64.AppImage
-          [ -n "$ZSYNC_FILE" ] && mv "$ZSYNC_FILE" dist/Zed-x86_64.AppImage.zsync
-          
-          echo "Moved files to dist/"
-          ls -la dist/
+          ls -la Zed_Preview-*.AppImage Zed_Preview-*.zsync 2>/dev/null
 
       - name: Verify and validate AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
-          echo "dist contents:"
-          ls -al dist
-          test -f dist/Zed-x86_64.AppImage || (echo "AppImage missing" && exit 1)
+          APPIMAGE_FILE=$(ls Zed_Preview-*.AppImage 2>/dev/null | head -n 1)
+          test -f "$APPIMAGE_FILE" || (echo "AppImage missing" && exit 1)
           
-          if [ ! -f dist/Zed-x86_64.AppImage.zsync ]; then
-            echo "Warning: zsync file not found in dist/"
-            find . -name "*.zsync" -type f
-          fi
-          
-          chmod +x dist/Zed-x86_64.AppImage
-          echo "AppImage size: $(ls -lah dist/Zed-x86_64.AppImage | awk '{print $5}')"
+          chmod +x "$APPIMAGE_FILE"
+          echo "AppImage: $APPIMAGE_FILE"
+          echo "AppImage size: $(ls -lah "$APPIMAGE_FILE" | awk '{print $5}')"
 
       - name: Upload release (gh)
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          FILES="dist/Zed-x86_64.AppImage"
-          [ -f dist/Zed-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-x86_64.AppImage.zsync"
+          FILES="Zed_Preview-${{ env.APP_VERSION }}-x86_64.AppImage"
+          ZSYNC_FILE="Zed_Preview-${{ env.APP_VERSION }}-x86_64.AppImage.zsync"
+          [ -f "$ZSYNC_FILE" ] && FILES="$FILES $ZSYNC_FILE"
           
           for file in $FILES; do
             if [ ! -f "$file" ]; then
@@ -201,5 +176,5 @@ jobs:
       - name: Post-release debug
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
-          echo "Final dist listing:"
-          ls -al dist || true
+          echo "Final files:"
+          ls -la Zed_Preview-*.* 2>/dev/null || true
