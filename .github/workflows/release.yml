@@ -77,13 +77,32 @@ jobs:
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
           mv zed-preview.app AppDir
           rm zed-linux-x86_64.tar.gz
-          mv AppDir/share/applications/zed-preview.desktop AppDir/share/applications/zed.desktop || true
-          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/share/applications/zed.desktop || true
-          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/share/applications/zed.desktop || true
-          cp AppDir/share/applications/zed.desktop AppDir/ || true
-          cp AppDir/share/icons/hicolor/512x512/apps/zed.png AppDir/ || true
+          
+          echo "AppDir structure:"
+          find AppDir -name "*.desktop" -type f
+          
+          DESKTOP_FILE=$(find AppDir -name "*.desktop" -type f | head -n 1)
+          if [ -z "$DESKTOP_FILE" ]; then
+            echo "ERROR: No desktop file found in AppDir"
+            exit 1
+          fi
+          echo "Found desktop file: $DESKTOP_FILE"
+          
+          cp "$DESKTOP_FILE" AppDir/zed.desktop
+          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/zed.desktop
+          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/zed.desktop
+          
+          ICON_FILE=$(find AppDir -name "zed*.png" -type f | head -n 1)
+          if [ -n "$ICON_FILE" ]; then
+            cp "$ICON_FILE" AppDir/zed.png
+            echo "Copied icon: $ICON_FILE"
+          fi
+          
           cd AppDir && ln -sf bin/zed AppRun && cd ..
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
+          
+          echo "Final AppDir top-level:"
+          ls -la AppDir/
 
       - name: Prepare output directory
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -97,6 +116,11 @@ jobs:
         env:
           VERSION: ${{ env.APP_VERSION }}
         run: |
+          echo "AppDir contents before build:"
+          ls -la AppDir/
+          echo "Desktop file in AppDir:"
+          cat AppDir/*.desktop || echo "No desktop file at top level!"
+          
           wget -q https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-940-x86_64.AppImage
           chmod +x appimagetool-940-x86_64.AppImage
           
