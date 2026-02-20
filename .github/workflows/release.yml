@@ -101,11 +101,7 @@ jobs:
 
           chmod +x appimagetool-940-x86_64.AppImage
 
-          ./appimagetool-940-x86_64.AppImage \
-            --comp xz \
-            --verbose \
-            AppDir \
-            dist/Zed-x86_64.AppImage
+          ./appimagetool-940-x86_64.AppImage AppDir dist/Zed-x86_64.AppImage
 
       - name: Verify and validate AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
