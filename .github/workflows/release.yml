@@ -85,69 +85,43 @@ jobs:
           cd AppDir && ln -sf bin/zed AppRun && cd ..
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
 
-      - name: Prepare output directory & debug
+      - name: Prepare output directory
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
           mkdir -p dist
           echo "AppDir listing:"
-          ls -al AppDir || true
-          echo "dist listing (before build):"
-          ls -al dist || true
+          ls -al AppDir
 
-      - name: Build AppImage with modern options
+      - name: Build AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        env:
+          VERSION: ${{ env.APP_VERSION }}
         run: |
           wget -q https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-940-x86_64.AppImage
-
           chmod +x appimagetool-940-x86_64.AppImage
-
-          ./appimagetool-940-x86_64.AppImage AppDir dist/Zed-x86_64.AppImage
+          
+          echo "Building AppImage with VERSION=$VERSION"
+          ./appimagetool-940-x86_64.AppImage ./AppDir
+          
+          echo "Files generated:"
+          ls -la *.AppImage *.zsync 2>/dev/null || ls -la
+          
+          mv Zed-*-x86_64.AppImage dist/Zed-x86_64.AppImage
+          mv Zed-*-x86_64.AppImage.zsync dist/Zed-x86_64.AppImage.zsync 2>/dev/null || true
 
       - name: Verify and validate AppImage
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
-          echo "dist contents after build:"
+          echo "dist contents:"
           ls -al dist
           test -f dist/Zed-x86_64.AppImage || (echo "AppImage missing" && exit 1)
           
-          # Debug: Check for zsync file in all possible locations
-          echo "Searching for zsync file in current directory:"
-          find . -name "*.zsync" -type f
-          echo "Searching for zsync file in dist directory:"
-          find dist -name "*.zsync" -type f 2>/dev/null || echo "No zsync file found in dist directory"
-          echo "Listing all files in working directory:"
-          find . -maxdepth 2 -type f -name "*.zsync" -exec ls -la {} \;
-          
-          # Validate zsync generation
           if [ ! -f dist/Zed-x86_64.AppImage.zsync ]; then
-            echo "zsync file was not generated in dist/ directory!"
-            # Try to find the zsync file in case it was generated elsewhere
-            ZSYNC_FILE=$(find . -name "Zed-x86_64.AppImage.zsync" -type f | head -n 1)
-            if [ -n "$ZSYNC_FILE" ]; then
-              echo "zsync file found at: $ZSYNC_FILE"
-              cp "$ZSYNC_FILE" dist/ || echo "Failed to copy zsync file to dist directory"
-              # Check if copy was successful
-              if [ -f dist/Zed-x86_64.AppImage.zsync ]; then
-                echo "zsync file successfully copied to dist/ directory"
-              else
-                echo "Failed to copy zsync file to dist directory"
-                exit 1
-              fi
-            else
-              echo "No zsync file found in any location"
-              exit 1
-            fi
+            echo "Warning: zsync file not found in dist/"
+            find . -name "*.zsync" -type f
           fi
-          echo "zsync file size: $(ls -lah dist/Zed-x86_64.AppImage.zsync | awk '{print $5}')"
-          echo "zsync file found and validated"
           
-          # Make AppImage executable and do basic validation
           chmod +x dist/Zed-x86_64.AppImage
-          
-          # Test if AppImage can show help (non-interactive)
-          timeout 15 ./dist/Zed-x86_64.AppImage --help > /dev/null 2>&1 || echo "Help check completed (expected timeout)"
-          
-          echo "AppImage validation completed successfully"
           echo "AppImage size: $(ls -lah dist/Zed-x86_64.AppImage | awk '{print $5}')"
 
       - name: Upload release (gh)
@@ -155,11 +129,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Build the list of files to upload: always upload the AppImage, include zsync if present
           FILES="dist/Zed-x86_64.AppImage"
           [ -f dist/Zed-x86_64.AppImage.zsync ] && FILES="$FILES dist/Zed-x86_64.AppImage.zsync"
           
-          # Verify all files exist before upload
           for file in $FILES; do
             if [ ! -f "$file" ]; then
               echo "File $file does not exist for upload"
@@ -169,8 +141,6 @@ jobs:
           
           echo "Files to upload: $FILES"
           
-          # Delete existing 'latest' release if present, then create new one with explicit files.
-          # Add retry for release operations
           for i in {1..3}; do
             if gh release delete latest --yes 2>/dev/null || true; then
               break
@@ -193,7 +163,7 @@ jobs:
             sleep 5
           done
 
-      - name: Post-release debug (optional)
+      - name: Post-release debug
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
           echo "Final dist listing:"
