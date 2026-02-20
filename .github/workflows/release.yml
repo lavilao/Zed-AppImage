@@ -101,11 +101,7 @@ jobs:
 
           chmod +x appimagetool-940-x86_64.AppImage
 
-          
-          Update_Info="gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Zed-x86_64.AppImage.zsync"
-          
           ./appimagetool-940-x86_64.AppImage \
-            -u "$Update_Info" \
             --comp xz \
             --verbose \
             AppDir \
