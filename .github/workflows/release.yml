@@ -152,7 +152,7 @@ jobs:
           echo "Files to upload: $FILES"
           
           for i in {1..3}; do
-            if gh release delete latest --yes 2>/dev/null || true; then
+            if gh release delete latest --yes 2>/dev/null; then
               break
             elif [ $i -eq 3 ]; then
               echo "Failed to delete existing release after 3 attempts"
