@@ -4,7 +4,7 @@
 [![Zed AppImage release](https://github.com/lavilao/Zed-AppImage/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/lavilao/Zed-AppImage/actions/workflows/release.yml)
 
 ## Get Started
-
+123
 #### [Download the latest stable release](https://github.com/lavilao/Zed-AppImage/releases/latest)
 - pre release only
 - supports update of the AppImage
