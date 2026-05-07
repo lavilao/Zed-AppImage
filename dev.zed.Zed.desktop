@@ -6,7 +6,6 @@ GenericName=Text Editor
 Comment=A high-performance, multiplayer code editor.
 Exec=zed %U
 Icon=appleterminal
-StartupWMClass=zed
 Terminal=false
 Categories=Utility;TextEditor;Development;IDE;
 Keywords=zed;

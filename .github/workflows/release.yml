@@ -88,9 +88,9 @@ jobs:
           fi
           echo "Found desktop file: $DESKTOP_FILE"
           
-          cp "$DESKTOP_FILE" AppDir/zed.desktop
-          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/zed.desktop
-          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/zed.desktop
+          cp "$DESKTOP_FILE" AppDir/dev.zed.Zed.desktop
+          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/dev.zed.Zed.desktop
+          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/dev.zed.Zed.desktop
           
           ICON_FILE=$(find AppDir -name "zed*.png" -type f | head -n 1)
           if [ -n "$ICON_FILE" ]; then
@@ -98,7 +98,7 @@ jobs:
             echo "Copied icon: $ICON_FILE"
           fi
           
-          sed -i 's/Icon=.*/Icon=appleterminal/' AppDir/zed.desktop
+          sed -i 's/Icon=.*/Icon=appleterminal/' AppDir/dev.zed.Zed.desktop
           
           cd AppDir && ln -sf bin/zed AppRun && cd ..
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
