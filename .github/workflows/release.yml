@@ -94,9 +94,11 @@ jobs:
           
           ICON_FILE=$(find AppDir -name "zed*.png" -type f | head -n 1)
           if [ -n "$ICON_FILE" ]; then
-            cp "$ICON_FILE" AppDir/zed.png
+            cp "$ICON_FILE" AppDir/appleterminal.png
             echo "Copied icon: $ICON_FILE"
           fi
+          
+          sed -i 's/Icon=.*/Icon=appleterminal/' AppDir/zed.desktop
           
           cd AppDir && ln -sf bin/zed AppRun && cd ..
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
