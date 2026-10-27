@@ -1,6 +1,11 @@
 name: Build Release AppImage
 on:
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Build even if the latest release is already up to date"
+        type: boolean
+        default: false
   schedule:
     - cron: "5 */12 * * *"
   push:
@@ -33,10 +38,18 @@ jobs:
       - name: Check for existing release
         id: check_update
         run: |
+          if [ "${{ inputs.force_build }}" = "true" ]; then
+            echo "Manual build forced; skipping the existing release check"
+            echo "NEEDS_BUILD=true" >> $GITHUB_OUTPUT
+            echo "APP_NAME=Zed" >> $GITHUB_ENV
+            echo "APP_VERSION=${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_ENV
+            exit 0
+          fi
+
           LATEST=$(curl -sH "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases/tags/latest || true)
           if echo "$LATEST" | grep -q '"tag_name":"latest"'; then
-            EXISTING=$(echo "$LATEST" | jq -r '.body' | grep -oP 'Zed version: \K[0-9.]+' || echo "none")
+            EXISTING=$(echo "$LATEST" | jq -r '.body' | grep -oP 'Zed version: \K\S+' || echo "none")
             [ "$EXISTING" = "${{ steps.get_version.outputs.VERSION }}" ] && \
               { echo "NEEDS_BUILD=false" >> $GITHUB_OUTPUT; exit 0; }
           fi
@@ -55,10 +68,13 @@ jobs:
         env:
           TZ: UTC
           SOURCE_DATE_EPOCH: ${{ steps.get_version.outputs.DATE_EPOCH }}
+          ZED_TAG: ${{ steps.get_version.outputs.TAG }}
         run: |
+          set -euo pipefail
+
           # Download with retry
           for i in {1..3}; do
-            if wget -q "https://github.com/zed-industries/zed/releases/download/${{ steps.get_version.outputs.TAG }}/zed-linux-x86_64.tar.gz"; then
+            if wget -q "https://github.com/zed-industries/zed/releases/download/$ZED_TAG/zed-linux-x86_64.tar.gz"; then
               break
             elif [ $i -eq 3 ]; then
               echo "Failed to download after 3 attempts"
@@ -75,28 +91,74 @@ jobs:
           echo "Downloaded archive size: $(ls -lah zed-linux-x86_64.tar.gz | awk '{print $5}')"
           
           tar -xzf zed-linux-x86_64.tar.gz --mtime='2020-01-01 00:00:00'
-          mv zed-preview.app AppDir
+          TARBALL_DIR=$(find . -maxdepth 1 -type d -name 'zed*.app' | head -n 1)
+          if [ -z "$TARBALL_DIR" ]; then
+            echo "ERROR: No Zed application directory found in the archive"
+            exit 1
+          fi
+          mv "$TARBALL_DIR" AppDir
           rm zed-linux-x86_64.tar.gz
           
           echo "AppDir structure:"
           find AppDir -name "*.desktop" -type f
           
-          DESKTOP_FILE=$(find AppDir -name "*.desktop" -type f | head -n 1)
+          DESKTOP_FILE=$(find AppDir/share/applications -maxdepth 1 -name "*.desktop" -type f | head -n 1)
           if [ -z "$DESKTOP_FILE" ]; then
             echo "ERROR: No desktop file found in AppDir"
             exit 1
           fi
           echo "Found desktop file: $DESKTOP_FILE"
           
-          cp "$DESKTOP_FILE" AppDir/zed.desktop
-          sed -i 's/Name=zed-preview/Name=Zed/' AppDir/zed.desktop
-          sed -i 's/Exec=zed-preview/Exec=zed/' AppDir/zed.desktop
+          # The desktop file basename is Zed's application ID: it is what Zed
+          # passes to xdg_toplevel.set_app_id on Wayland (and uses as WM_CLASS
+          # on X11). Keep it instead of renaming it to zed.desktop.
+          DESKTOP_NAME=$(basename "$DESKTOP_FILE")
+          APP_ID="${DESKTOP_NAME%.desktop}"
+          echo "Zed application ID: $APP_ID"
+          cp "$DESKTOP_FILE" "AppDir/$DESKTOP_NAME"
           
-          ICON_FILE=$(find AppDir -name "zed*.png" -type f | head -n 1)
-          if [ -n "$ICON_FILE" ]; then
-            cp "$ICON_FILE" AppDir/zed.png
-            echo "Copied icon: $ICON_FILE"
+          # AppImage desktop integration tools (notably appimaged) install the
+          # desktop file as appimagekit_<md5>.desktop. Without StartupWMClass,
+          # Wayland compositors cannot match the running window (app_id) to
+          # that entry and fall back to the generic Wayland icon.
+          if grep -q '^StartupWMClass=' "AppDir/$DESKTOP_NAME"; then
+            sed -i "0,/^StartupWMClass=/s/^StartupWMClass=.*/StartupWMClass=$APP_ID/" "AppDir/$DESKTOP_NAME"
+          else
+            sed -i "0,/^Exec=/s/^Exec=\(.*\)$/Exec=\1\nStartupWMClass=$APP_ID/" "AppDir/$DESKTOP_NAME"
           fi
+          sed -i 's/^Icon=.*/Icon=zed/' "AppDir/$DESKTOP_NAME"
+          
+          # Recent Zed tarballs stopped shipping icons. Fetch the icon for the
+          # matching release channel from the upstream tag when it is missing.
+          ICON_512=$(find AppDir -path '*/512x512/apps/*.png' -type f 2>/dev/null | head -n 1 || true)
+          ICON_1024=$(find AppDir -path '*/1024x1024/apps/*.png' -type f 2>/dev/null | head -n 1 || true)
+          
+          if [ -z "$ICON_512" ] || [ -z "$ICON_1024" ]; then
+            case "$APP_ID" in
+              *-Preview) ICON_SUFFIX="-preview" ;;
+              *-Nightly) ICON_SUFFIX="-nightly" ;;
+              *-Dev) ICON_SUFFIX="-dev" ;;
+              *) ICON_SUFFIX="" ;;
+            esac
+            ICON_BASE="https://raw.githubusercontent.com/zed-industries/zed/$ZED_TAG/crates/zed/resources"
+            mkdir -p AppDir/share/icons/hicolor/512x512/apps AppDir/share/icons/hicolor/1024x1024/apps
+            if [ -z "$ICON_512" ]; then
+              echo "Downloading app-icon${ICON_SUFFIX}.png from $ZED_TAG"
+              curl -fsSL "$ICON_BASE/app-icon${ICON_SUFFIX}.png" -o AppDir/share/icons/hicolor/512x512/apps/zed.png
+              ICON_512=AppDir/share/icons/hicolor/512x512/apps/zed.png
+            fi
+            if [ -z "$ICON_1024" ]; then
+              echo "Downloading app-icon${ICON_SUFFIX}@2x.png from $ZED_TAG"
+              curl -fsSL "$ICON_BASE/app-icon${ICON_SUFFIX}@2x.png" -o AppDir/share/icons/hicolor/1024x1024/apps/zed.png
+              ICON_1024=AppDir/share/icons/hicolor/1024x1024/apps/zed.png
+            fi
+          fi
+          
+          # appimagetool needs an icon next to the desktop file at the AppDir root.
+          cp "$ICON_512" AppDir/zed.png
+          test -s AppDir/zed.png
+          test -s "$ICON_1024"
+          file AppDir/zed.png "$ICON_1024"
           
           cd AppDir && ln -sf bin/zed AppRun && cd ..
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
@@ -114,11 +176,21 @@ jobs:
           echo "Desktop file in AppDir:"
           cat AppDir/*.desktop
           
-          wget -q https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-940-x86_64.AppImage
-          chmod +x appimagetool-940-x86_64.AppImage
+          # Resolve the current appimagetool asset from the continuous release
+          # instead of pinning a filename that may be deleted by upstream.
+          APPIMAGETOOL_URL=$(curl -fsSL \
+            https://api.github.com/repos/probonopd/go-appimage/releases/tags/continuous \
+            | jq -r '[.assets[] | select(.name | test("^appimagetool-[0-9]+-x86_64\\.AppImage$"))][0].browser_download_url')
+          if [ -z "$APPIMAGETOOL_URL" ] || [ "$APPIMAGETOOL_URL" = "null" ]; then
+            echo "ERROR: Could not resolve the appimagetool download URL"
+            exit 1
+          fi
+          echo "Downloading $APPIMAGETOOL_URL"
+          wget -q "$APPIMAGETOOL_URL" -O appimagetool
+          chmod +x appimagetool
           
           echo "Building AppImage with VERSION=$VERSION"
-          ./appimagetool-940-x86_64.AppImage ./AppDir
+          ./appimagetool ./AppDir
           
           echo "Files generated:"
           ls -la Zed_Preview-*.AppImage Zed_Preview-*.zsync 2>/dev/null
@@ -132,9 +204,34 @@ jobs:
           chmod +x "$APPIMAGE_FILE"
           echo "AppImage: $APPIMAGE_FILE"
           echo "AppImage size: $(ls -lah "$APPIMAGE_FILE" | awk '{print $5}')"
+          
+          APP_ID=$(basename "$(find AppDir -maxdepth 1 -name '*.desktop' | head -n 1)" .desktop)
+          echo "Expected application ID: $APP_ID"
+          
+          ./"$APPIMAGE_FILE" --appimage-extract >/dev/null
+          
+          ROOT_DESKTOP=$(find squashfs-root -maxdepth 1 -name '*.desktop' | head -n 1)
+          test -n "$ROOT_DESKTOP"
+          test "$(basename "$ROOT_DESKTOP" .desktop)" = "$APP_ID"
+          grep -q "^StartupWMClass=$APP_ID$" "$ROOT_DESKTOP"
+          grep -q '^Icon=zed$' "$ROOT_DESKTOP"
+          test -s squashfs-root/zed.png
+          file squashfs-root/zed.png
+          echo "Desktop entry, application ID and root icon verified"
+          rm -rf squashfs-root
+
+      - name: Upload test artifact
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true' && github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zed-AppImage-test-${{ env.APP_VERSION }}
+          path: |
+            Zed_Preview-*.AppImage
+            Zed_Preview-*.AppImage.zsync
+          if-no-files-found: error
 
       - name: Upload release (gh)
-        if: steps.check_update.outputs.NEEDS_BUILD == 'true'
+        if: steps.check_update.outputs.NEEDS_BUILD == 'true' && github.ref == 'refs/heads/main'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
