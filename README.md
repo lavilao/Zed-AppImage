@@ -17,8 +17,15 @@ Double-click the `*.AppImage` file and you are done!
 > need mark file as executable. You can do this using File manager -> right click > Properties > Allow Execution,
 > or by terminal issuing command `chmod +x Zed-*.AppImage`
 
+#### Desktop integration
+On first launch the AppImage installs its `.desktop` entry and icon into
+`~/.local/share`, so Wayland compositors can associate the Zed window with
+the correct icon. Set `NO_DESKTOP_INTEGRATION=1` to skip this.
+
 #### Appimaged
-Use Appimaged for better desktop integration ==> [download appimaged](https://github.com/probonopd/go-appimage/tree/master/src/appimaged)
+The AppImage already performs desktop integration on first launch. If you
+prefer appimaged, disable the built-in integration with
+`NO_DESKTOP_INTEGRATION=1` ==> [download appimaged](https://github.com/probonopd/go-appimage/tree/master/src/appimaged)
 
 #### Terminal
 ```bash

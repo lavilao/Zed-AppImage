@@ -61,7 +61,7 @@ jobs:
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y squashfs-tools libfuse2 wget jq gh
+          sudo apt-get install -y squashfs-tools libfuse2 wget jq gh desktop-file-utils
 
       - name: Download & prepare Zed with retry and validation
         if: steps.check_update.outputs.NEEDS_BUILD == 'true'
@@ -160,7 +160,14 @@ jobs:
           test -s "$ICON_1024"
           file AppDir/zed.png "$ICON_1024"
           
-          cd AppDir && ln -sf bin/zed AppRun && cd ..
+          # The AppImage runtime has no way to tell a Wayland compositor about
+          # its icon: the compositor maps the window's app_id to an installed
+          # desktop entry. Install one on first launch so the icon works even
+          # when the AppImage is started without appimaged/AppImageLauncher.
+          cp appimage/AppRun AppDir/AppRun
+          sed -i "s|@APP_ID@|$APP_ID|" AppDir/AppRun
+          chmod +x AppDir/AppRun
+          
           find AppDir -type f -o -type d | sort | xargs touch -t 202001010000.00
           
           echo "Final AppDir top-level:"
@@ -190,7 +197,7 @@ jobs:
           chmod +x appimagetool
           
           echo "Building AppImage with VERSION=$VERSION"
-          ./appimagetool ./AppDir
+          ARCH=$(uname -m) ./appimagetool ./AppDir
           
           echo "Files generated:"
           ls -la Zed_Preview-*.AppImage Zed_Preview-*.zsync 2>/dev/null
@@ -218,7 +225,29 @@ jobs:
           test -s squashfs-root/zed.png
           file squashfs-root/zed.png
           echo "Desktop entry, application ID and root icon verified"
-          rm -rf squashfs-root
+          
+          # Exercise AppRun's desktop integration with a stub launcher, using
+          # an AppImage path that contains spaces.
+          INTEGRATION_DIR=$(mktemp -d)
+          mkdir -p "$INTEGRATION_DIR/bin"
+          cp squashfs-root/AppRun "$INTEGRATION_DIR/"
+          cp "squashfs-root/$APP_ID.desktop" "$INTEGRATION_DIR/"
+          cp squashfs-root/zed.png "$INTEGRATION_DIR/"
+          printf '#!/bin/sh\nexit 0\n' > "$INTEGRATION_DIR/bin/zed"
+          chmod +x "$INTEGRATION_DIR/bin/zed"
+          XDG_DATA_HOME="$INTEGRATION_DIR/data" \
+            APPIMAGE="/opt/Zed AppImage/Zed.AppImage" \
+            "$INTEGRATION_DIR/AppRun"
+          INSTALLED_DESKTOP="$INTEGRATION_DIR/data/applications/$APP_ID.desktop"
+          INSTALLED_ICON="$INTEGRATION_DIR/data/icons/hicolor/512x512/apps/zed.png"
+          test -f "$INSTALLED_DESKTOP"
+          desktop-file-validate "$INSTALLED_DESKTOP"
+          grep -qx "StartupWMClass=$APP_ID" "$INSTALLED_DESKTOP"
+          grep -qx "Exec=\"/opt/Zed AppImage/Zed.AppImage\" %U" "$INSTALLED_DESKTOP"
+          grep -qx "Icon=$INSTALLED_ICON" "$INSTALLED_DESKTOP"
+          test -s "$INSTALLED_ICON"
+          echo "AppRun desktop integration verified"
+          rm -rf "$INTEGRATION_DIR" squashfs-root
 
       - name: Upload test artifact
         if: steps.check_update.outputs.NEEDS_BUILD == 'true' && github.ref != 'refs/heads/main'
