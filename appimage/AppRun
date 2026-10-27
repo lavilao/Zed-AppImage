@@ -17,36 +17,50 @@ if [ -n "${APPIMAGE:-}" ] && [ -z "${NO_DESKTOP_INTEGRATION:-}" ] && [ -f "$DIR/
   DESKTOP_PATH="$APPS_DIR/$APP_ID.desktop"
 
   mkdir -p "$ICON_DIR" "$APPS_DIR"
-  if ! cmp -s "$DIR/zed.png" "$ICON_PATH" 2>/dev/null; then
-    cp "$DIR/zed.png" "$ICON_PATH"
-  fi
 
-  # Point the entry at this AppImage, drop TryExec (zed is not in PATH when
-  # running from an AppImage) and use the installed icon.
-  while IFS= read -r line; do
-    case "$line" in
-      Exec=*)
-        args=${line#Exec=}
-        args=${args#zed}
-        printf 'Exec="%s"%s\n' "$APPIMAGE" "$args"
-        ;;
-      TryExec=*)
-        ;;
-      Icon=*)
-        printf 'Icon=%s\n' "$ICON_PATH"
-        ;;
-      *)
-        printf '%s\n' "$line"
-        ;;
-    esac
-  done < "$DIR/$APP_ID.desktop" > "$DESKTOP_PATH.tmp"
-  mv "$DESKTOP_PATH.tmp" "$DESKTOP_PATH"
+  # If another integration (e.g. appimaged) already registered an entry for
+  # this application ID, don't create a duplicate menu item.
+  SKIP=0
+  for f in "$APPS_DIR"/*.desktop; do
+    [ -f "$f" ] || continue
+    if grep -q "^StartupWMClass=$APP_ID$" "$f" 2>/dev/null; then
+      SKIP=1
+      break
+    fi
+  done
 
-  if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
-  fi
-  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -f -t "$DATA_HOME/icons/hicolor" >/dev/null 2>&1 || true
+  if [ "$SKIP" -eq 0 ]; then
+    if ! cmp -s "$DIR/zed.png" "$ICON_PATH" 2>/dev/null; then
+      cp "$DIR/zed.png" "$ICON_PATH"
+    fi
+
+    # Point the entry at this AppImage, drop TryExec (zed is not in PATH when
+    # running from an AppImage) and use the installed icon.
+    while IFS= read -r line; do
+      case "$line" in
+        Exec=*)
+          args=${line#Exec=}
+          args=${args#zed}
+          printf 'Exec="%s"%s\n' "$APPIMAGE" "$args"
+          ;;
+        TryExec=*)
+          ;;
+        Icon=*)
+          printf 'Icon=%s\n' "$ICON_PATH"
+          ;;
+        *)
+          printf '%s\n' "$line"
+          ;;
+      esac
+    done < "$DIR/$APP_ID.desktop" > "$DESKTOP_PATH.tmp"
+    mv "$DESKTOP_PATH.tmp" "$DESKTOP_PATH"
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -f -t "$DATA_HOME/icons/hicolor" >/dev/null 2>&1 || true
+    fi
   fi
 fi
 
